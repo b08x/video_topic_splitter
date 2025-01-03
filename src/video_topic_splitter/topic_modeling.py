@@ -17,30 +17,19 @@ def preprocess_text(text):
     """Preprocess text for topic modeling."""
     print("Preprocessing text...")
     doc = nlp(text)
-    subjects = []
-
-    for sent in doc.sents:
-        for token in sent:
-            if "subj" in token.dep_:
-                if token.dep_ in ["nsubj", "nsubjpass", "csubj"]:
-                    subject = get_compound_subject(token)
-                    subjects.append(subject)
-
-    cleaned_subjects = [
+    sentences = [
         [
             token.lemma_.lower()
-            for token in nlp(subject)
+            for token in sent
             if not token.is_stop and not token.is_punct and token.is_alpha
         ]
-        for subject in subjects
+        for sent in doc.sents
     ]
+    
+    cleaned_sentences = [list(s) for s in set(tuple(sent) for sent in sentences) if s]
 
-    cleaned_subjects = [
-        list(s) for s in set(tuple(sub) for sub in cleaned_subjects) if s
-    ]
-
-    print(f"Text preprocessing complete. Extracted {len(cleaned_subjects)} unique subjects.")
-    return cleaned_subjects
+    print(f"Text preprocessing complete. Extracted {len(cleaned_sentences)} unique sentences.")
+    return cleaned_sentences
 
 def get_compound_subject(token):
     """Extract compound subjects from a token."""
@@ -75,13 +64,18 @@ def identify_segments(transcript, lda_model, dictionary, num_topics):
     print("Identifying segments based on topics...")
     segments = []
     current_segment = {"start": 0, "end": 0, "content": "", "topic": None}
-
+    
+    preprocessed_sentences = preprocess_text(" ".join([sentence["content"] for sentence in transcript]))
+    
+    sentence_index = 0
     for sentence in progressbar.progressbar(transcript):
-        subjects = preprocess_text(sentence["content"])
-        if not subjects:
+        if not preprocessed_sentences:
             continue
-
-        bow = dictionary.doc2bow([token for subject in subjects for token in subject])
+        
+        if sentence_index >= len(preprocessed_sentences):
+            sentence_index = len(preprocessed_sentences) - 1
+        
+        bow = dictionary.doc2bow(preprocessed_sentences[sentence_index])
         topic_dist = lda_model.get_document_topics(bow)
         dominant_topic = max(topic_dist, key=lambda x: x[1])[0] if topic_dist else None
 
@@ -98,6 +92,8 @@ def identify_segments(transcript, lda_model, dictionary, num_topics):
         else:
             current_segment["end"] = sentence["end"]
             current_segment["content"] += " " + sentence["content"]
+        
+        sentence_index += 1
 
     if current_segment["content"]:
         segments.append(current_segment)
