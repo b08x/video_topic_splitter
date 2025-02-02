@@ -7,8 +7,8 @@ import progressbar
 from gensim import corpora
 from gensim.models import LdaMulticore
 from gensim.models.phrases import Phrases, Phraser
-import requests
 import os
+from openai import OpenAI
 
 from .constants import CHECKPOINTS
 from .project import save_checkpoint
@@ -94,32 +94,34 @@ def perform_topic_modeling(subjects, num_topics=5):
 
 def perform_topic_modeling_openrouter(text, num_topics=5):
     """Perform topic modeling using OpenRouter API and microsoft/phi-4 model."""
-    print("Performing topic modeling using OpenRouter API...")
+    """Perform topic modeling using OpenRouter API and microsoft/phi-4 model with openai library."""
+    print("Performing topic modeling using OpenRouter API with openai library...")
     api_key = os.getenv("OPENROUTER_API_KEY")
-    api_url = "https://openrouter.ai/api/v1/chat/completions"  # Assumed chat completions endpoint
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }
-
-    data = {
-        "model": "microsoft/phi-4",
-        "messages": [
-            {"role": "user", "content": f"Identify the main topics in the following text and provide keywords for each topic:\\n\\n{text}"}
-        ]
-    }
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=api_key,
+    )
 
     try:
-        response = requests.post(api_url, headers=headers, json=data)
-        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-        
-        # Process the response and extract topic information (assuming chat completion format)
-        topics_data = response.json()["choices"][0]["message"]["content"]
+        completion = client.chat.completions.create(
+            extra_headers={
+                "HTTP-Referer": "https://video-topic-splitter.example",  # Replace with your site URL if needed
+                "X-Title": "Video Topic Splitter",  # Replace with your site title if needed
+            },
+            model="microsoft/phi-4",
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Identify the main topics in the following text and provide keywords for each topic:\\n\\n{text}"
+                }
+            ]
+        )
+        topics_data = completion.choices[0].message.content
         print("OpenRouter API response received.")
         return topics_data  # Return raw response content for now - needs parsing
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"Error during OpenRouter API request: {e}")
         return None  # Or raise exception
 
