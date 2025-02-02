@@ -188,26 +188,29 @@ def process_transcript(transcript, project_path, num_topics=5):
     """Process transcript for topic modeling and segmentation."""
     full_text = " ".join([sentence["content"] for sentence in transcript])
     preprocessed_subjects = preprocess_text(full_text)
-    lda_model, corpus, dictionary = perform_topic_modeling(preprocessed_subjects, num_topics)
     
-    save_checkpoint(project_path, CHECKPOINTS['TOPIC_MODELING_COMPLETE'], {
-        'lda_model': lda_model,
-        'corpus': corpus,
-        'dictionary': dictionary
-    })
+    # LDA Topic Modeling (Old implementation - Commented out)
+    # lda_model, corpus, dictionary = perform_topic_modeling(preprocessed_subjects, num_topics)    
+    # save_checkpoint(project_path, CHECKPOINTS['TOPIC_MODELING_COMPLETE'], {
+    #     'lda_model': lda_model,
+    #     'corpus': corpus,
+    #     'dictionary': dictionary
+    # })
+    # segments = identify_segments(transcript, lda_model, dictionary, num_topics)
+    # metadata = generate_metadata(segments, lda_model)
 
-    segments = identify_segments(transcript, lda_model, dictionary, num_topics)
-    save_checkpoint(project_path, CHECKPOINTS['SEGMENTS_IDENTIFIED'], {
-        'segments': segments
-    })
+    # OpenRouter Topic Modeling (New implementation)
+    openrouter_topics = perform_topic_modeling_openrouter(full_text, num_topics)
+    # Placeholder for segment identification and metadata generation using OpenRouter topics
+    segments = []  # Placeholder
+    metadata = []  # Placeholder
 
-    metadata = generate_metadata(segments, lda_model)
 
     results = {
         "topics": [
             {
                 "topic_id": topic_id,
-                "words": [word for word, _ in lda_model.show_topic(topic_id, topn=10)],
+                "words": ["word1", "word2", "word3"]  # Placeholder - needs to be updated based on OpenRouter response
             }
             for topic_id in range(num_topics)
         ],
