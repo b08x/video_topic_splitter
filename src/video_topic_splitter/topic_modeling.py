@@ -190,10 +190,18 @@ def generate_metadata(segments, lda_model):
 def process_transcript(transcript, project_path, num_topics=5):
     """Process transcript for topic modeling and segmentation."""
     full_text = " ".join([sentence["content"] for sentence in transcript])
+
+    # --- Test OpenRouter API ---
+    test_text = "This is a sample text about machine learning and natural language processing."
+    openrouter_response = perform_topic_modeling_openrouter(test_text, num_topics=3)
+    print("OpenRouter API Response (Test):")
+    print(openrouter_response)
+    # --- End Test ---
+
     preprocessed_subjects = preprocess_text(full_text)
     
     # LDA Topic Modeling (Old implementation - Commented out)
-    # lda_model, corpus, dictionary = perform_topic_modeling(preprocessed_subjects, num_topics)    
+    # lda_model, corpus, dictionary = perform_topic_modeling(preprocessed_subjects, num_topics)
     # save_checkpoint(project_path, CHECKPOINTS['TOPIC_MODELING_COMPLETE'], {
     #     'lda_model': lda_model,
     #     'corpus': corpus,
