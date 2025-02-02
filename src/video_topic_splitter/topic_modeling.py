@@ -96,7 +96,7 @@ def perform_topic_modeling_openrouter(text, num_topics=5):
     """Perform topic modeling using OpenRouter API and microsoft/phi-4 model."""
     print("Performing topic modeling using OpenRouter API...")
     api_key = os.getenv("OPENROUTER_API_KEY")
-    api_url = "https://openrouter.ai/api/v1/topic-modeling"  # Placeholder URL - needs to be verified
+    api_url = "https://openrouter.ai/api/v1/chat/completions"  # Assumed chat completions endpoint
 
     headers = {
         "Content-Type": "application/json",
@@ -105,18 +105,19 @@ def perform_topic_modeling_openrouter(text, num_topics=5):
 
     data = {
         "model": "microsoft/phi-4",
-        "input_text": text,
-        "num_topics": num_topics  # Assuming API supports num_topics parameter
+        "messages": [
+            {"role": "user", "content": f"Identify the main topics in the following text and provide keywords for each topic:\\n\\n{text}"}
+        ]
     }
 
     try:
         response = requests.post(api_url, headers=headers, json=data)
         response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
         
-        # Process the response and extract topic information
-        topics_data = response.json()
+        # Process the response and extract topic information (assuming chat completion format)
+        topics_data = response.json()["choices"][0]["message"]["content"]
         print("OpenRouter API response received.")
-        return topics_data  # Placeholder - needs to be refined based on actual API response format
+        return topics_data  # Return raw response content for now - needs parsing
 
     except requests.exceptions.RequestException as e:
         print(f"Error during OpenRouter API request: {e}")
