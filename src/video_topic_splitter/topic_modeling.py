@@ -6,6 +6,9 @@ import spacy
 import progressbar
 from gensim import corpora
 from gensim.models import LdaMulticore
+from gensim.models.phrases import Phrases, Phraser
+import requests
+import os
 
 from .constants import CHECKPOINTS
 from .project import save_checkpoint
@@ -13,23 +16,53 @@ from .project import save_checkpoint
 # Load spaCy model
 nlp = spacy.load("en_core_web_sm")
 
-def preprocess_text(text):
+import os
+
+def preprocess_text(text, custom_stopwords=None, stopwords_file_path="/tmp/custom_stop_words.txt"):
     """Preprocess text for topic modeling."""
     print("Preprocessing text...")
     doc = nlp(text)
-    sentences = [
-        [
-            token.lemma_.lower()
-            for token in sent
-            if not token.is_stop and not token.is_punct and token.is_alpha
-        ]
-        for sent in doc.sents
-    ]
     
+    if stopwords_file_path:
+        try:
+            with open(stopwords_file_path, 'r') as f:
+                file_stopwords = [line.strip() for line in f]
+                if custom_stopwords:
+                    custom_stopwords.extend(file_stopwords)
+                else:
+                    custom_stopwords = file_stopwords
+        except FileNotFoundError:
+            print(f"Stopwords file not found at: {stopwords_file_path}")
+        except Exception as e:
+            print(f"Error reading stopwords file: {e}")
+
+    sentences = []
+    for sent in doc.sents:
+        sentence = []
+        for token in sent:
+            if token.ent_type_:
+                sentence.append(get_compound_subject(token))
+            elif "subj" in token.dep_:
+                if token.dep_ in ["nsubj", "nsubjpass", "csubj"]:
+                    sentence.append(get_compound_subject(token))
+            elif not token.is_stop and not token.is_punct and token.is_alpha and (custom_stopwords is None or token.lemma_.lower() not in custom_stopwords):
+                sentence.append(token.lemma_.lower())
+        sentences.append(sentence)
+
     cleaned_sentences = [list(s) for s in set(tuple(sent) for sent in sentences) if s]
 
-    print(f"Text preprocessing complete. Extracted {len(cleaned_sentences)} unique sentences.")
-    return cleaned_sentences
+    # Create bigram and trigram models
+    bigram_model = Phrases(cleaned_sentences, min_count=1, threshold=1)
+    bigram_phraser = Phraser(bigram_model)
+    trigram_model = Phrases(bigram_phraser[cleaned_sentences], min_count=1, threshold=1)
+    trigram_phraser = Phraser(trigram_model)
+
+    # Apply the models
+    sentences_with_bigrams = [bigram_phraser[sent] for sent in cleaned_sentences]
+    sentences_with_trigrams = [trigram_phraser[sent] for sent in sentences_with_bigrams]
+
+    print(f"Text preprocessing complete. Extracted {len(sentences_with_trigrams)} unique sentences with bigrams and trigrams.")
+    return sentences_with_trigrams
 
 def get_compound_subject(token):
     """Extract compound subjects from a token."""
@@ -58,6 +91,36 @@ def perform_topic_modeling(subjects, num_topics=5):
     )
     print("Topic modeling complete.")
     return lda_model, corpus, dictionary
+
+def perform_topic_modeling_openrouter(text, num_topics=5):
+    """Perform topic modeling using OpenRouter API and microsoft/phi-4 model."""
+    print("Performing topic modeling using OpenRouter API...")
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    api_url = "https://openrouter.ai/api/v1/topic-modeling"  # Placeholder URL - needs to be verified
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    data = {
+        "model": "microsoft/phi-4",
+        "input_text": text,
+        "num_topics": num_topics  # Assuming API supports num_topics parameter
+    }
+
+    try:
+        response = requests.post(api_url, headers=headers, json=data)
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+        
+        # Process the response and extract topic information
+        topics_data = response.json()
+        print("OpenRouter API response received.")
+        return topics_data  # Placeholder - needs to be refined based on actual API response format
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error during OpenRouter API request: {e}")
+        return None  # Or raise exception
 
 def identify_segments(transcript, lda_model, dictionary, num_topics):
     """Identify video segments based on topic analysis."""
