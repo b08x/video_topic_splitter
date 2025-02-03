@@ -5,6 +5,7 @@ import os
 import json
 from dotenv import load_dotenv
 import videogrep
+from .youtube import download_video
 from deepgram import DeepgramClient, PrerecordedOptions
 from groq import Groq
 
@@ -203,11 +204,30 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
 
     return results
 
-def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, skip_unsilence=False, transcribe_only=False):
+def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, skip_unsilence=False, transcribe_only=False, is_youtube_url=False):
     """Main video processing pipeline."""
     from .project import load_checkpoint
     
     checkpoint = load_checkpoint(project_path)
+
+    # Handle YouTube video download if needed
+    if is_youtube_url:
+        if checkpoint is None or checkpoint['stage'] < CHECKPOINTS['YOUTUBE_DOWNLOAD_COMPLETE']:
+            print("Downloading YouTube video...")
+            download_path = os.path.join(project_path, "source_video.mp4")
+            result = download_video(video_path, download_path)
+            
+            if result["status"] == "error":
+                raise RuntimeError(f"YouTube download failed: {result['message']}")
+                
+            video_path = download_path
+            save_checkpoint(project_path, CHECKPOINTS['YOUTUBE_DOWNLOAD_COMPLETE'], {
+                'video_path': video_path
+            })
+            print(result["message"])
+        else:
+            video_path = checkpoint['data']['video_path']
+            print("Using previously downloaded YouTube video.")
     
     if checkpoint is None or checkpoint['stage'] < CHECKPOINTS['AUDIO_PROCESSED']:
         unsilenced_video_path, mono_resampled_audio_path = handle_audio_video(

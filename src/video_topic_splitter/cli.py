@@ -3,24 +3,34 @@
 import os
 import sys
 import argparse
-from typing import Optional
+from typing import Optional, Tuple
 from dotenv import load_dotenv
 
 from .core import process_video
+from .youtube import is_youtube_url
 from .project import create_project_folder, load_checkpoint
 from .constants import CHECKPOINTS
 from .transcription import load_transcript
 from .topic_modeling import process_transcript
 
-def validate_input_file(input_path: str) -> Optional[str]:
-    """Validate input file exists and has correct extension."""
+def validate_input(input_path: str) -> Tuple[Optional[str], bool]:
+    """Validate input is either a valid file path or YouTube URL.
+    
+    Returns:
+        Tuple[Optional[str], bool]: (error message if any, is_youtube_url)
+    """
+    # Check if input is a YouTube URL
+    if is_youtube_url(input_path):
+        return None, True
+        
+    # Check if input is a valid file
     if not os.path.exists(input_path):
-        return f"Input file not found: {input_path}"
+        return f"Input file not found: {input_path}", False
     
     if not input_path.lower().endswith(('.mp4', '.mkv', '.json')):
-        return f"Unsupported file format. Supported formats: .mp4, .mkv, .json"
+        return f"Unsupported file format. Supported formats: .mp4, .mkv, .json", False
     
-    return None
+    return None, False
 
 def main() -> None:
     """Main entry point for the CLI."""
@@ -31,7 +41,7 @@ def main() -> None:
         "-i",
         "--input",
         required=True,
-        help="Path to the input video file or transcript JSON",
+        help="Path to input video file, YouTube URL, or transcript JSON",
     )
     parser.add_argument(
         "-o",
@@ -71,8 +81,9 @@ def main() -> None:
     # Load environment variables
     load_dotenv()
 
-    # Validate input file
-    if error := validate_input_file(args.input):
+    # Validate input (file or YouTube URL)
+    error, is_youtube = validate_input(args.input)
+    if error:
         print(f"Error: {error}")
         sys.exit(1)
 
@@ -103,7 +114,8 @@ def main() -> None:
                 args.topics,
                 args.groq_prompt,
                 args.skip_unsilence,
-                args.transcribe_only
+                args.transcribe_only,
+                is_youtube_url=is_youtube
             )
 
         print(f"\nProcessing complete. Project folder: {project_path}")

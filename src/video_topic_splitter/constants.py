@@ -4,11 +4,12 @@
 # Define checkpoint stages
 CHECKPOINTS = {
     'PROJECT_CREATED': 0,
-    'AUDIO_PROCESSED': 1,
-    'TRANSCRIPTION_COMPLETE': 2,
-    'TRANSCRIBE_ONLY_COMPLETE': 3,  # New checkpoint for transcription-only mode
-    'TOPIC_MODELING_COMPLETE': 4,
-    'SEGMENTS_IDENTIFIED': 5,
-    'VIDEO_ANALYZED': 6,
-    'PROCESS_COMPLETE': 7
+    'YOUTUBE_DOWNLOAD_COMPLETE': 1,  # New checkpoint for YouTube downloads
+    'AUDIO_PROCESSED': 2,
+    'TRANSCRIPTION_COMPLETE': 3,
+    'TRANSCRIBE_ONLY_COMPLETE': 4,  # Checkpoint for transcription-only mode
+    'TOPIC_MODELING_COMPLETE': 5,
+    'SEGMENTS_IDENTIFIED': 6,
+    'VIDEO_ANALYZED': 7,
+    'PROCESS_COMPLETE': 8
 }
