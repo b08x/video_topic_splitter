@@ -89,7 +89,7 @@ def perform_ocr(frame, regions=None, lang='eng'):
         logger.error(f"OCR processing error: {str(e)}")
         return []
 
-def detect_software_names(frame, software_list):
+def detect_software_names(frame, software_list, lang='eng'):
     """Detect software application names in a video frame."""
     # Preprocess the frame
     processed_frame = preprocess_frame(frame)
@@ -98,7 +98,7 @@ def detect_software_names(frame, software_list):
     regions = detect_text_regions(processed_frame)
     
     # Perform OCR
-    ocr_results = perform_ocr(processed_frame, regions)
+    ocr_results = perform_ocr(processed_frame, regions, lang=lang)
     
     # Match detected text against software list
     matches = []

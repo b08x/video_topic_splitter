@@ -19,6 +19,7 @@ This project represents a collaboration between human expertise and AI implement
   - Async processing with concurrent batches
   - Context-aware topic transitions
   - Automatic result caching
+  - Register-specific prompts for specialized analysis
 
 - **Enhanced Visual Analysis**:
   - Software detection through OCR and logos
@@ -26,6 +27,7 @@ This project represents a collaboration between human expertise and AI implement
   - Adaptive thumbnail generation
   - YouTube thumbnail integration
   - Confidence-based detection
+  - Register-aware visual analysis
 
 - **Robust Project Management**:
   - Comprehensive checkpoint system
@@ -80,22 +82,23 @@ AUDIO_PARAMS = {
       'response_format': 'verbose_json'
   }
   ```
-- **Gemini**: gemini-1.5-pro-latest
+- **Gemini**: gemini-2.0-flash-exp
   ```python
-  # Visual Analysis Prompt Template
-  ANALYSIS_PROMPT = """Analyze this video segment. 
-  The transcript for this segment is: '{transcript}'. 
-  Describe the main subject matter, key visual elements, 
-  and how they relate to the transcript."""
+  # Register-specific Visual Analysis Templates
+  REGISTERS = {
+      'it-workflow': """Analyze with focus on software tools, commands, and configurations...""",
+      'gen-ai': """Analyze with focus on AI models, parameters, and implementations...""",
+      'tech-support': """Analyze with focus on problems, diagnostics, and solutions..."""
+  }
   ```
-- **Topic Modeling**: LDA Configuration
+- **Topic Modeling**: Register-aware Analysis
   ```python
-  lda_params = {
+  topic_params = {
       'num_topics': 5,
-      'random_state': 100,
-      'chunksize': 100,
-      'passes': 10,
-      'per_word_topics': True
+      'register': 'it-workflow',  # or 'gen-ai' or 'tech-support'
+      'batch_size': 5,
+      'max_concurrent': 3,
+      'similarity_threshold': 0.7
   }
   ```
 
@@ -120,6 +123,7 @@ Ever tried finding that one specific part of a lecture or presentation but ended
 - 🔍 Detects software applications through OCR and logo recognition
 - 🖼️ Generates smart thumbnails for better visual understanding
 - 💾 Maintains checkpoints so you don't lose progress when things go sideways
+- 🎭 Supports specialized analysis registers for different types of content
 
 ## AI Stack
 Since we're being transparent about AI usage, here's the full AI stack this tool employs:
@@ -157,6 +161,7 @@ pip install -e .
 DG_API_KEY=your_deepgram_key
 GROQ_API_KEY=your_groq_key
 GEMINI_API_KEY=your_gemini_key
+OPENROUTER_API_KEY=your_openrouter_key
 ```
 
 3. Run it:
@@ -164,8 +169,12 @@ GEMINI_API_KEY=your_gemini_key
 # Basic usage
 video-topic-splitter -i your_video.mp4 -o output_directory
 
+# With register selection
+video-topic-splitter -i your_video.mp4 -o output_directory --register it-workflow
+
 # With software detection
 video-topic-splitter -i your_video.mp4 -o output_directory \
+  --register tech-support \
   --software-list apps.txt \
   --logo-db logos/ \
   --ocr-lang eng \
@@ -173,12 +182,34 @@ video-topic-splitter -i your_video.mp4 -o output_directory \
 
 # With thumbnail customization
 video-topic-splitter -i your_video.mp4 -o output_directory \
+  --register gen-ai \
   --thumbnail-interval 5 \
   --max-thumbnails 5 \
   --min-thumbnail-confidence 0.7
 ```
 
 ## Features in Detail
+
+### Analysis Registers
+The tool supports three specialized analysis registers:
+
+1. **IT Workflows** (`--register it-workflow`):
+   - Focuses on software tools and commands
+   - Detects system configurations
+   - Analyzes technical procedures
+   - Identifies tool interactions
+
+2. **Generative AI** (`--register gen-ai`):
+   - Focuses on AI model usage
+   - Detects prompt engineering patterns
+   - Analyzes model parameters
+   - Identifies implementation strategies
+
+3. **Technical Support** (`--register tech-support`):
+   - Focuses on problem descriptions
+   - Detects error messages
+   - Analyzes troubleshooting steps
+   - Identifies resolution patterns
 
 ### Audio Processing Pipeline
 - Normalizes audio levels 🔊
@@ -189,6 +220,7 @@ video-topic-splitter -i your_video.mp4 -o output_directory \
 - Deepgram (default): Better for technical content
 - Groq: More contextual understanding
 - Custom prompting available for Groq
+- Register-aware prompting for better context
 
 ### Analysis Features
 
@@ -198,6 +230,7 @@ video-topic-splitter -i your_video.mp4 -o output_directory \
   - Relationship classification (CONTINUATION, SHIFT, NEW)
   - Confidence scoring with configurable thresholds (70-85%)
   - Context-aware analysis of segment transitions
+  - Register-specific prompt templates
 - Advanced processing:
   - Async batching with concurrent API calls
   - LRU caching for repeated segments
@@ -222,6 +255,7 @@ video-topic-splitter -i your_video.mp4 -o output_directory \
   - Frame-by-frame processing
   - Software usage detection
   - UI element identification
+  - Register-aware visual analysis
 
 #### Project Management
 - Checkpoint system:
@@ -243,6 +277,7 @@ video-topic-splitter -i your_video.mp4 -o output_directory \
   - Quality-controlled JPEG compression
 - Context-aware scene understanding
 - Correlation with transcript content
+- Register-specific visual analysis prompts
 
 ### Robustness Features
 - Checkpoint system for long processes
@@ -274,6 +309,18 @@ output_directory/
 
 ## Advanced Usage
 
+### Using Different Analysis Registers
+```bash
+# IT Workflow Analysis
+video-topic-splitter -i video.mp4 -o output --register it-workflow
+
+# Generative AI Analysis
+video-topic-splitter -i video.mp4 -o output --register gen-ai
+
+# Technical Support Analysis
+video-topic-splitter -i video.mp4 -o output --register tech-support
+```
+
 ### Using Groq for Transcription
 ```bash
 video-topic-splitter -i video.mp4 -o output --api groq --groq-prompt "Technical presentation context"
@@ -282,7 +329,7 @@ video-topic-splitter -i video.mp4 -o output --api groq --groq-prompt "Technical 
 ### Topic Analysis Configuration
 ```bash
 # Basic configuration
-video-topic-splitter -i video.mp4 -o output --topics 7
+video-topic-splitter -i video.mp4 -o output --topics 7 --register it-workflow
 
 # Advanced configuration via environment variables
 export TOPIC_ANALYZER_BATCH_SIZE=5        # Sentences per batch
@@ -296,6 +343,7 @@ export TOPIC_NEW_CONFIDENCE=70      # New topic threshold
 export TOPIC_SHIFT_CONFIDENCE=85    # Topic shift threshold
 
 # The analyzer provides:
+# - Register-specific analysis
 # - Relationship analysis between segments
 # - Confidence scores for transitions
 # - Cached results for repeated content
@@ -308,8 +356,9 @@ export TOPIC_SHIFT_CONFIDENCE=85    # Topic shift threshold
 # Create a text file with software names
 echo -e "Visual Studio Code\nPython IDLE\nJupyter Notebook" > apps.txt
 
-# Run with software detection
+# Run with software detection and register selection
 video-topic-splitter -i video.mp4 -o output \
+  --register tech-support \
   --software-list apps.txt \
   --logo-db path/to/logos \
   --ocr-lang eng \
@@ -318,8 +367,9 @@ video-topic-splitter -i video.mp4 -o output \
 
 ### Thumbnail Management
 ```bash
-# Basic thumbnail configuration
+# Basic thumbnail configuration with register selection
 video-topic-splitter -i video.mp4 -o output \
+  --register gen-ai \
   --thumbnail-interval 5 \
   --max-thumbnails 5 \
   --min-thumbnail-confidence 0.7
@@ -349,6 +399,7 @@ When processing YouTube videos, the tool automatically:
    - Try the alternative transcription service
 
 2. **Segmentation seems off:**
+   - Try a different register that matches your content
    - Increase the number of topics
    - Check if the video has clear topic transitions
    - Review the transcript quality
@@ -372,6 +423,7 @@ When processing YouTube videos, the tool automatically:
 - OCR accuracy depends on text clarity and contrast
 - Logo detection requires good quality reference images
 - AI services can sometimes be... well, AI-ish (we're not perfect!)
+- Register analysis effectiveness depends on content matching
 
 ## Contributing
 
@@ -395,7 +447,7 @@ Built with these awesome tools:
 - [Deepgram](https://deepgram.com/) - Transcription
 - [Groq](https://groq.com/) - Alternative transcription
 - [Gemini](https://deepmind.google/technologies/gemini/) - Visual analysis
-- [Gensim](https://radimrehurek.com/gensim/) - Topic modeling
+- [OpenRouter](https://openrouter.ai/) - Topic modeling
 - [FFmpeg](https://ffmpeg.org/) - Audio processing
 - [Claude](https://anthropic.com) - For writing this documentation
 - And more in the requirements.txt
@@ -412,6 +464,8 @@ Built with these awesome tools:
 - [ ] Expanded software detection database
 - [ ] Custom OCR model training
 - [ ] Real-time software detection
+- [ ] Additional specialized registers
+- [ ] Register auto-detection
 
 ## A Note from Your AI Documentation Writer
 
@@ -420,4 +474,4 @@ I find it fascinating to be writing documentation for a tool that itself uses AI
 Remember: This is a tool, not a magic wand. It works best with clear, well-structured content. If your input video is chaos, expect chaotic results. Garbage in, garbage out, as they say in the biz. And hey, if you're reading this, you're literally reading AI-generated documentation about an AI-powered tool. How meta is that? 🤖✨
 
 ---
-_Documentation generated by Claude (Anthropic) on November 16, 2024. Yes, I'm an AI, and I'm proud of it! Feel free to update this documentation with human-written content if you prefer._
+_Documentation generated by Claude (Anthropic) on February 3, 2025. Yes, I'm an AI, and I'm proud of it! Feel free to update this documentation with human-written content if you prefer._

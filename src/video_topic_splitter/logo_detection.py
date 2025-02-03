@@ -119,7 +119,14 @@ class LogoDetector:
         
         return results
 
-def detect_software_logos(frame, software_list, logo_db_path=None):
-    """Convenience function to detect software logos in a frame."""
+def detect_software_logos(frame, software_list, logo_db_path=None, threshold=0.8):
+    """Convenience function to detect software logos in a frame.
+    
+    Args:
+        frame: Video frame to analyze
+        software_list: List of software names to detect
+        logo_db_path: Optional path to logo database
+        threshold: Confidence threshold for logo detection (0.0-1.0, default: 0.8)
+    """
     detector = LogoDetector(logo_db_path)
-    return detector.detect_logos(frame)
+    return detector.detect_logos(frame, threshold=threshold)
