@@ -105,7 +105,7 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
 
 # Process transcript function is now imported directly from topic_modeling module
 
-def handle_transcription(video_path, audio_path, project_path, api="deepgram", num_topics=2, groq_prompt=None):
+def handle_transcription(video_path, audio_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, software_list=None):
     """Handle transcription of video/audio content."""
     segments_dir = os.path.join(project_path, "segments")
     os.makedirs(segments_dir, exist_ok=True)
@@ -171,7 +171,7 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
 
     # Split the video and analyze segments
     try:
-        analyzed_segments = split_and_analyze_video(video_path, results["segments"], segments_dir)
+        analyzed_segments = split_and_analyze_video(video_path, results["segments"], segments_dir, software_list)
         
         # Update results with analyzed segments
         results["analyzed_segments"] = analyzed_segments
@@ -204,7 +204,7 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
 
     return results
 
-def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, skip_unsilence=False, transcribe_only=False, is_youtube_url=False):
+def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, skip_unsilence=False, transcribe_only=False, is_youtube_url=False, software_list=None):
     """Main video processing pipeline."""
     from .project import load_checkpoint
     
@@ -303,7 +303,8 @@ def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_p
                 project_path,
                 api,
                 num_topics,
-                groq_prompt
+                groq_prompt,
+                software_list
             )
     else:
         results = checkpoint['data']['results']

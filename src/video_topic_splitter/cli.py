@@ -75,6 +75,11 @@ def main() -> None:
         action="store_true",
         help="Only perform audio transcription without topic modeling or video analysis"
     )
+    parser.add_argument(
+        "--software-list",
+        type=str,
+        help="Path to a text file containing list of software applications to detect (one per line)"
+    )
     
     args = parser.parse_args()
 
@@ -107,6 +112,20 @@ def main() -> None:
                 "Note: Video splitting and Gemini analysis are not performed when processing a transcript file."
             )
         else:
+            # Read software list if provided
+            software_list = None
+            if args.software_list:
+                if not os.path.exists(args.software_list):
+                    print(f"Error: Software list file not found: {args.software_list}")
+                    sys.exit(1)
+                try:
+                    with open(args.software_list, 'r') as f:
+                        software_list = [line.strip() for line in f if line.strip()]
+                    print(f"Loaded {len(software_list)} software applications to detect")
+                except Exception as e:
+                    print(f"Error reading software list file: {str(e)}")
+                    sys.exit(1)
+
             results = process_video(
                 args.input,
                 project_path,
@@ -115,7 +134,8 @@ def main() -> None:
                 args.groq_prompt,
                 args.skip_unsilence,
                 args.transcribe_only,
-                is_youtube_url=is_youtube
+                is_youtube_url=is_youtube,
+                software_list=software_list
             )
 
         print(f"\nProcessing complete. Project folder: {project_path}")
@@ -128,10 +148,18 @@ def main() -> None:
             print("\nTop words for each topic:")
             for topic in results["topics"]:
                 print(f"Topic {topic['topic_id'] + 1}: {', '.join(topic['words'])}")
+            
             print(f"\nGenerated and analyzed {len(results['analyzed_segments'])} segments")
+            
+            if args.software_list:
+                print("\nSoftware Detection Results:")
+                for segment in results["analyzed_segments"]:
+                    if "software_detected" in segment and segment["software_detected"]:
+                        print(f"\nSegment {segment['segment_id']} ({segment['start_time']:.2f}s - {segment['end_time']:.2f}s):")
+                        print(f"Analysis: {segment['gemini_analysis']}")
 
             if not args.input.endswith(".json"):
-                print(f"Video segments saved in: {os.path.join(project_path, 'segments')}")
+                print(f"\nVideo segments saved in: {os.path.join(project_path, 'segments')}")
 
     except KeyboardInterrupt:
         print("\nProcess interrupted by user. Progress has been saved.")

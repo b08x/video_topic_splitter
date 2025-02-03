@@ -30,7 +30,7 @@ def save_analyzed_segments(segments_dir, analyzed_segments):
     with open(analysis_file, 'w') as f:
         json.dump(analyzed_segments, f, indent=2)
 
-def analyze_segment_with_gemini(segment_path, transcript):
+def analyze_segment_with_gemini(segment_path, transcript, software_list=None):
     """Analyze a video segment using Google's Gemini model."""
     print(f"Analyzing segment: {segment_path}")
     
@@ -45,8 +45,22 @@ def analyze_segment_with_gemini(segment_path, transcript):
         image = Image.fromarray(frame)
         video.close()
 
-        # Prepare the prompt
-        prompt = f"Analyze this video segment. The transcript for this segment is: '{transcript}'. Describe the main subject matter, key visual elements, and how they relate to the transcript."
+        # Prepare the prompt with software detection focus
+        software_context = ""
+        if software_list:
+            software_context = f"\n\nSpecifically look for these software applications: {', '.join(software_list)}. For each detected application, note its name, any visible version information, and what actions are being performed in it."
+        
+        prompt = (
+            f"Analyze this video segment with a focus on identifying software applications. "
+            f"The transcript for this segment is: '{transcript}'\n\n"
+            f"Please identify:\n"
+            f"1. Any visible software applications, their interfaces, and windows\n"
+            f"2. Specific UI elements that indicate which software is being used\n"
+            f"3. Any version information visible in title bars or menus\n"
+            f"4. Actions or operations being performed in the software\n"
+            f"5. How the visual elements relate to the transcript{software_context}\n\n"
+            f"Format the software-related findings in a structured way."
+        )
 
         # Initialize Gemini model
         model = genai.GenerativeModel("gemini-2.0-flash-exp")
@@ -58,7 +72,7 @@ def analyze_segment_with_gemini(segment_path, transcript):
         print(f"Error analyzing segment with Gemini: {str(e)}")
         return f"Analysis failed: {str(e)}"
 
-def split_and_analyze_video(input_video, segments, output_dir):
+def split_and_analyze_video(input_video, segments, output_dir, software_list=None):
     """Split video into segments and analyze each segment with checkpoint support."""
     print("Splitting video into segments and analyzing...")
     
@@ -99,13 +113,14 @@ def split_and_analyze_video(input_video, segments, output_dir):
                         logger=None
                     )
                 
-                # Analyze the segment
+                # Analyze the segment with software detection
                 gemini_analysis = analyze_segment_with_gemini(
                     output_path,
-                    segment["transcript"]
+                    segment["transcript"],
+                    software_list
                 )
                 
-                # Create the analysis result
+                # Create the analysis result with software information
                 analysis_result = {
                     "segment_id": segment_id,
                     "start_time": segment["start_time"],
@@ -114,6 +129,7 @@ def split_and_analyze_video(input_video, segments, output_dir):
                     "topic": segment["dominant_topic"],
                     "keywords": segment["top_keywords"],
                     "gemini_analysis": gemini_analysis,
+                    "software_detected": bool(software_list),  # Indicates if software detection was performed
                 }
                 
                 # Add to our results and save immediately
