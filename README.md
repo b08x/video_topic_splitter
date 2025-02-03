@@ -194,15 +194,20 @@ video-topic-splitter -i your_video.mp4 -o output_directory \
 
 #### Topic Analysis
 - OpenRouter phi-4 model integration:
-  - Smart boundary detection
-  - Async batch processing
-  - Context-aware transitions
-  - Confidence scoring
-  - Result caching
-- Text processing:
-  - TF-IDF analysis
-  - NLTK integration
-  - Stopword handling
+  - Smart boundary detection using TF-IDF and cosine similarity
+  - Relationship classification (CONTINUATION, SHIFT, NEW)
+  - Confidence scoring with configurable thresholds (70-85%)
+  - Context-aware analysis of segment transitions
+- Advanced processing:
+  - Async batching with concurrent API calls
+  - LRU caching for repeated segments
+  - Automatic NLTK resource management
+  - Configurable retry mechanism
+- Performance optimizations:
+  - Smart batch size adjustment
+  - Similarity-based boundary detection
+  - Progress tracking with tqdm
+  - Checkpointing for long processes
 
 #### Visual Processing
 - Software detection:
@@ -276,21 +281,26 @@ video-topic-splitter -i video.mp4 -o output --api groq --groq-prompt "Technical 
 
 ### Topic Analysis Configuration
 ```bash
-# Basic topic count adjustment
+# Basic configuration
 video-topic-splitter -i video.mp4 -o output --topics 7
 
 # Advanced configuration via environment variables
-export TOPIC_ANALYZER_BATCH_SIZE=5        # Number of sentences per batch
-export TOPIC_ANALYZER_MAX_CONCURRENT=3    # Maximum concurrent API calls
-export TOPIC_ANALYZER_SIMILARITY_THRESHOLD=0.7  # Boundary detection threshold
-export TOPIC_ANALYZER_MAX_RETRIES=3       # API retry attempts
+export TOPIC_ANALYZER_BATCH_SIZE=5        # Sentences per batch
+export TOPIC_ANALYZER_MAX_CONCURRENT=3    # Concurrent API calls
+export TOPIC_ANALYZER_SIMILARITY_THRESHOLD=0.7  # Boundary detection
+export TOPIC_ANALYZER_MAX_RETRIES=3       # API retries
+export TOPIC_ANALYZER_CACHE_SIZE=1000     # LRU cache entries
 
-# The analyzer automatically:
-# - Batches content for optimal processing
-# - Detects natural topic boundaries
-# - Caches results for performance
-# - Handles API rate limiting
-# - Provides confidence scores for transitions
+# Confidence thresholds
+export TOPIC_NEW_CONFIDENCE=70      # New topic threshold
+export TOPIC_SHIFT_CONFIDENCE=85    # Topic shift threshold
+
+# The analyzer provides:
+# - Relationship analysis between segments
+# - Confidence scores for transitions
+# - Cached results for repeated content
+# - Smart boundary detection
+# - Progress tracking and checkpointing
 ```
 
 ### Software Detection
