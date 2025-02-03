@@ -24,3 +24,9 @@ openrouter>=0.3.0
 black>=23.0.0
 pylint>=3.0.0
 pytest>=7.0.0
+
+yt_dlp
+scikit-learn
+nltk
+tqdm
+ffmpeg-normalize
