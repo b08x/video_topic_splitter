@@ -103,9 +103,10 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
 
     return unsilenced_video_path, mono_resampled_audio_path
 
-# Process transcript function is now imported directly from topic_modeling module
-
-def handle_transcription(video_path, audio_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, software_list=None):
+def handle_transcription(video_path, audio_path, project_path, api="deepgram", num_topics=2, 
+                       groq_prompt=None, software_list=None, logo_db_path=None, 
+                       ocr_lang="eng", logo_threshold=0.8, thumbnail_interval=5,
+                       max_thumbnails=5, min_thumbnail_confidence=0.7):
     """Handle transcription of video/audio content."""
     segments_dir = os.path.join(project_path, "segments")
     os.makedirs(segments_dir, exist_ok=True)
@@ -171,7 +172,18 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
 
     # Split the video and analyze segments
     try:
-        analyzed_segments = split_and_analyze_video(video_path, results["segments"], segments_dir, software_list)
+        analyzed_segments = split_and_analyze_video(
+            video_path, 
+            results["segments"], 
+            segments_dir, 
+            software_list,
+            logo_db_path,
+            ocr_lang,
+            logo_threshold,
+            thumbnail_interval,
+            max_thumbnails,
+            min_thumbnail_confidence
+        )
         
         # Update results with analyzed segments
         results["analyzed_segments"] = analyzed_segments
@@ -204,7 +216,10 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
 
     return results
 
-def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, skip_unsilence=False, transcribe_only=False, is_youtube_url=False, software_list=None):
+def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, 
+                 skip_unsilence=False, transcribe_only=False, is_youtube_url=False, 
+                 software_list=None, logo_db_path=None, ocr_lang="eng", logo_threshold=0.8,
+                 thumbnail_interval=5, max_thumbnails=5, min_thumbnail_confidence=0.7):
     """Main video processing pipeline."""
     from .project import load_checkpoint
     
@@ -215,14 +230,15 @@ def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_p
         if checkpoint is None or checkpoint['stage'] < CHECKPOINTS['YOUTUBE_DOWNLOAD_COMPLETE']:
             print("Downloading YouTube video...")
             download_path = os.path.join(project_path, "source_video.mp4")
-            result = download_video(video_path, download_path)
+            result = download_video(video_path, download_path, project_path)  # Pass project_path for thumbnail download
             
             if result["status"] == "error":
                 raise RuntimeError(f"YouTube download failed: {result['message']}")
                 
             video_path = download_path
             save_checkpoint(project_path, CHECKPOINTS['YOUTUBE_DOWNLOAD_COMPLETE'], {
-                'video_path': video_path
+                'video_path': video_path,
+                'thumbnail_info': result.get('thumbnail_info')
             })
             print(result["message"])
         else:
@@ -304,7 +320,13 @@ def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_p
                 api,
                 num_topics,
                 groq_prompt,
-                software_list
+                software_list,
+                logo_db_path,
+                ocr_lang,
+                logo_threshold,
+                thumbnail_interval,
+                max_thumbnails,
+                min_thumbnail_confidence
             )
     else:
         results = checkpoint['data']['results']

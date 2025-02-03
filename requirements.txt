@@ -1,4 +1,26 @@
-openai
-ffmpeg-normalize
-unsilence
-yt-dlp
+# Core dependencies
+python-dotenv>=1.0.0
+moviepy>=1.0.3
+progressbar2>=4.2.0
+yt-dlp>=2023.12.30
+openai>=1.3.0
+google-generativeai>=0.3.0
+deepgram-sdk>=2.12.0
+groq>=0.4.0
+videogrep>=2.0.0
+
+# Video and image processing
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# OCR dependencies
+pytesseract>=0.3.10
+
+# Topic modeling
+openrouter>=0.3.0
+
+# Development dependencies
+black>=23.0.0
+pylint>=3.0.0
+pytest>=7.0.0

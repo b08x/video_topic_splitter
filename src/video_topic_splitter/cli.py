@@ -80,6 +80,40 @@ def main() -> None:
         type=str,
         help="Path to a text file containing list of software applications to detect (one per line)"
     )
+    parser.add_argument(
+        "--logo-db",
+        type=str,
+        help="Path to directory containing software logo templates"
+    )
+    parser.add_argument(
+        "--ocr-lang",
+        default="eng",
+        help="Language for OCR detection (default: eng)"
+    )
+    parser.add_argument(
+        "--logo-threshold",
+        type=float,
+        default=0.8,
+        help="Confidence threshold for logo detection (0.0-1.0, default: 0.8)"
+    )
+    parser.add_argument(
+        "--thumbnail-interval",
+        type=int,
+        default=5,
+        help="Time interval between thumbnails in seconds (default: 5)"
+    )
+    parser.add_argument(
+        "--max-thumbnails",
+        type=int,
+        default=5,
+        help="Maximum number of thumbnails to generate per segment (default: 5)"
+    )
+    parser.add_argument(
+        "--min-thumbnail-confidence",
+        type=float,
+        default=0.7,
+        help="Minimum confidence threshold for thumbnail analysis (0.0-1.0, default: 0.7)"
+    )
     
     args = parser.parse_args()
 
@@ -135,7 +169,13 @@ def main() -> None:
                 args.skip_unsilence,
                 args.transcribe_only,
                 is_youtube_url=is_youtube,
-                software_list=software_list
+                software_list=software_list,
+                logo_db_path=args.logo_db,
+                ocr_lang=args.ocr_lang,
+                logo_threshold=args.logo_threshold,
+                thumbnail_interval=args.thumbnail_interval,
+                max_thumbnails=args.max_thumbnails,
+                min_thumbnail_confidence=args.min_thumbnail_confidence
             )
 
         print(f"\nProcessing complete. Project folder: {project_path}")

@@ -9,11 +9,22 @@ from moviepy.editor import VideoFileClip
 from PIL import Image
 import google.generativeai as genai
 from dotenv import load_dotenv
+import numpy as np
+import logging
+import cv2
 
+from .ocr_detection import detect_software_names
+from .logo_detection import detect_software_logos
+from .thumbnail_utils import ThumbnailManager
+
+logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Configure Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+# Configure paths
+LOGO_DB_PATH = os.path.join(os.path.dirname(__file__), 'data', 'logos')
 
 
 def load_analyzed_segments(segments_dir):
@@ -30,8 +41,70 @@ def save_analyzed_segments(segments_dir, analyzed_segments):
     with open(analysis_file, 'w') as f:
         json.dump(analyzed_segments, f, indent=2)
 
-def analyze_segment_with_gemini(segment_path, transcript, software_list=None):
-    """Analyze a video segment using Google's Gemini model."""
+def analyze_frame_for_software(frame, software_list=None, logo_db_path=None, ocr_lang="eng", logo_threshold=0.8):
+    """Analyze a single frame for software applications using OCR and logo detection."""
+    results = {
+        'ocr_matches': [],
+        'logo_matches': []
+    }
+    
+    if software_list:
+        # Perform OCR detection
+        ocr_matches = detect_software_names(frame, software_list, lang=ocr_lang)
+        if ocr_matches:
+            results['ocr_matches'] = ocr_matches
+            
+        # Perform logo detection
+        logo_matches = detect_software_logos(frame, software_list, logo_db_path or LOGO_DB_PATH, threshold=logo_threshold)
+        if logo_matches:
+            results['logo_matches'] = logo_matches
+            
+    return results
+
+def analyze_thumbnails(thumbnails, software_list=None, logo_db_path=None, ocr_lang="eng", logo_threshold=0.8, min_confidence=0.7):
+    """Analyze thumbnails for software applications."""
+    results = []
+    
+    for thumbnail_info in thumbnails:
+        try:
+            # Load thumbnail
+            frame = cv2.imread(thumbnail_info['path'])
+            if frame is None:
+                continue
+                
+            # Analyze frame
+            analysis = analyze_frame_for_software(
+                frame,
+                software_list,
+                logo_db_path,
+                ocr_lang,
+                logo_threshold
+            )
+            
+            # Calculate confidence score
+            confidence = 0.0
+            if analysis['ocr_matches']:
+                confidence = max(match['confidence'] for match in analysis['ocr_matches'])
+            if analysis['logo_matches']:
+                logo_confidence = max(match['confidence'] for match in analysis['logo_matches'])
+                confidence = max(confidence, logo_confidence)
+                
+            if confidence >= min_confidence:
+                results.append({
+                    'thumbnail': thumbnail_info,
+                    'analysis': analysis,
+                    'confidence': confidence
+                })
+                
+        except Exception as e:
+            logger.error(f"Error analyzing thumbnail {thumbnail_info['path']}: {str(e)}")
+            continue
+            
+    return results
+
+def analyze_segment_with_gemini(segment_path, transcript, software_list=None, logo_db_path=None, 
+                              ocr_lang="eng", logo_threshold=0.8, min_thumbnail_confidence=0.7):
+    """Analyze a video segment using Google's Gemini model and software detection."""
     print(f"Analyzing segment: {segment_path}")
     
     # Check if Gemini API key is configured
@@ -39,16 +112,82 @@ def analyze_segment_with_gemini(segment_path, transcript, software_list=None):
         raise ValueError("GEMINI_API_KEY environment variable is not set")
         
     try:
-        # Load the video segment as an image (first frame)
+        # Load the video segment
         video = VideoFileClip(segment_path)
-        frame = video.get_frame(0)
-        image = Image.fromarray(frame)
+        
+        # Initialize ThumbnailManager
+        thumbnail_manager = ThumbnailManager(os.path.dirname(segment_path))
+        
+        # Generate thumbnails
+        thumbnails = thumbnail_manager.generate_thumbnails(segment_path, interval=5, max_thumbnails=5)
+        
+        # Analyze thumbnails
+        thumbnail_results = analyze_thumbnails(
+            thumbnails,
+            software_list,
+            logo_db_path,
+            ocr_lang,
+            logo_threshold,
+            min_thumbnail_confidence
+        )
+        
+        # If thumbnail analysis confidence is low, analyze additional frames
+        software_detections = []
+        if not thumbnail_results or max(r['confidence'] for r in thumbnail_results) < min_thumbnail_confidence:
+            duration = video.duration
+            frame_times = [0, duration/2, duration-0.1]
+            
+            for time in frame_times:
+                frame = video.get_frame(time)
+                frame_results = analyze_frame_for_software(
+                    frame,
+                    software_list,
+                    logo_db_path,
+                    ocr_lang,
+                    logo_threshold
+                )
+                if frame_results['ocr_matches'] or frame_results['logo_matches']:
+                    software_detections.append({
+                        'time': time,
+                        'source': 'frame',
+                        **frame_results
+                    })
+        
+        # Add thumbnail results to software detections
+        for result in thumbnail_results:
+            software_detections.append({
+                'time': result['thumbnail'].get('time', 0),
+                'source': 'thumbnail',
+                'confidence': result['confidence'],
+                **result['analysis']
+            })
+        
+        # Get first frame for Gemini analysis
+        first_frame = video.get_frame(0)
+        image = Image.fromarray(first_frame)
         video.close()
 
-        # Prepare the prompt with software detection focus
+        # Prepare the prompt with software detection focus and results
         software_context = ""
         if software_list:
-            software_context = f"\n\nSpecifically look for these software applications: {', '.join(software_list)}. For each detected application, note its name, any visible version information, and what actions are being performed in it."
+            software_context = (
+                f"\n\nSpecifically look for these software applications: {', '.join(software_list)}. "
+                f"For each detected application, note its name, any visible version information, "
+                f"and what actions are being performed in it."
+            )
+            
+            if software_detections:
+                software_context += "\n\nDetected software applications:"
+                for detection in software_detections:
+                    software_context += f"\nAt {detection['time']:.2f}s:"
+                    if detection['ocr_matches']:
+                        software_context += "\nText detected: " + ", ".join(
+                            f"{m['software']} ({m['detected_text']})" for m in detection['ocr_matches']
+                        )
+                    if detection['logo_matches']:
+                        software_context += "\nLogos detected: " + ", ".join(
+                            f"{m['software']} (confidence: {m['confidence']:.2f})" for m in detection['logo_matches']
+                        )
         
         prompt = (
             f"Analyze this video segment with a focus on identifying software applications. "
@@ -67,12 +206,20 @@ def analyze_segment_with_gemini(segment_path, transcript, software_list=None):
         
         # Generate content
         response = model.generate_content([prompt, image])
-        return response.text
+        
+        return {
+            'gemini_analysis': response.text,
+            'software_detections': software_detections
+        }
     except Exception as e:
         print(f"Error analyzing segment with Gemini: {str(e)}")
-        return f"Analysis failed: {str(e)}"
+        return {
+            'gemini_analysis': f"Analysis failed: {str(e)}",
+            'software_detections': []
+        }
 
-def split_and_analyze_video(input_video, segments, output_dir, software_list=None):
+def split_and_analyze_video(input_video, segments, output_dir, software_list=None, 
+                          logo_db_path=None, ocr_lang="eng", logo_threshold=0.8):
     """Split video into segments and analyze each segment with checkpoint support."""
     print("Splitting video into segments and analyzing...")
     
@@ -114,10 +261,13 @@ def split_and_analyze_video(input_video, segments, output_dir, software_list=Non
                     )
                 
                 # Analyze the segment with software detection
-                gemini_analysis = analyze_segment_with_gemini(
+                analysis_results = analyze_segment_with_gemini(
                     output_path,
                     segment["transcript"],
-                    software_list
+                    software_list,
+                    logo_db_path,
+                    ocr_lang,
+                    logo_threshold
                 )
                 
                 # Create the analysis result with software information
@@ -128,8 +278,9 @@ def split_and_analyze_video(input_video, segments, output_dir, software_list=Non
                     "transcript": segment["transcript"],
                     "topic": segment["dominant_topic"],
                     "keywords": segment["top_keywords"],
-                    "gemini_analysis": gemini_analysis,
+                    "gemini_analysis": analysis_results['gemini_analysis'],
                     "software_detected": bool(software_list),  # Indicates if software detection was performed
+                    "software_detections": analysis_results['software_detections']
                 }
                 
                 # Add to our results and save immediately
