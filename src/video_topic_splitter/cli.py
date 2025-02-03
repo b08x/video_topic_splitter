@@ -60,6 +60,11 @@ def main() -> None:
         action="store_true",
         help="Skip silence removal processing"
     )
+    parser.add_argument(
+        "--transcribe-only",
+        action="store_true",
+        help="Only perform audio transcription without topic modeling or video analysis"
+    )
     
     args = parser.parse_args()
 
@@ -97,18 +102,24 @@ def main() -> None:
                 args.api,
                 args.topics,
                 args.groq_prompt,
-                args.skip_unsilence
+                args.skip_unsilence,
+                args.transcribe_only
             )
 
         print(f"\nProcessing complete. Project folder: {project_path}")
         print(f"Results saved in: {os.path.join(project_path, 'results.json')}")
-        print("\nTop words for each topic:")
-        for topic in results["topics"]:
-            print(f"Topic {topic['topic_id'] + 1}: {', '.join(topic['words'])}")
-        print(f"\nGenerated and analyzed {len(results['analyzed_segments'])} segments")
+        
+        if args.transcribe_only:
+            print("\nTranscription completed successfully.")
+            print("Transcript and raw transcription data saved in project folder.")
+        else:
+            print("\nTop words for each topic:")
+            for topic in results["topics"]:
+                print(f"Topic {topic['topic_id'] + 1}: {', '.join(topic['words'])}")
+            print(f"\nGenerated and analyzed {len(results['analyzed_segments'])} segments")
 
-        if not args.input.endswith(".json"):
-            print(f"Video segments saved in: {os.path.join(project_path, 'segments')}")
+            if not args.input.endswith(".json"):
+                print(f"Video segments saved in: {os.path.join(project_path, 'segments')}")
 
     except KeyboardInterrupt:
         print("\nProcess interrupted by user. Progress has been saved.")

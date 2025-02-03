@@ -203,7 +203,7 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
 
     return results
 
-def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, skip_unsilence=False):
+def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, skip_unsilence=False, transcribe_only=False):
     """Main video processing pipeline."""
     from .project import load_checkpoint
     
@@ -218,18 +218,78 @@ def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_p
         mono_resampled_audio_path = checkpoint['data']['mono_resampled_audio_path']
 
     if checkpoint is None or checkpoint['stage'] < CHECKPOINTS['VIDEO_ANALYZED']:
-        results = handle_transcription(
-            unsilenced_video_path,
-            mono_resampled_audio_path,
-            project_path,
-            api,
-            num_topics,
-            groq_prompt
-        )
+        if transcribe_only:
+            print("Transcribe-only mode: Skipping topic modeling and video analysis...")
+            # Get transcript only
+            print("Parsing transcript with Videogrep...")
+            transcript = videogrep.parse_transcript(unsilenced_video_path)
+            print("Transcript parsing complete.")
+
+            if not transcript:
+                print("No transcript found. Transcribing audio...")
+                deepgram_key = os.getenv("DG_API_KEY")
+                groq_key = os.getenv("GROQ_API_KEY")
+
+                if not deepgram_key:
+                    raise ValueError("DG_API_KEY environment variable is not set")
+                if not groq_key and api == "groq":
+                    raise ValueError("GROQ_API_KEY environment variable is not set")
+
+                if api == "deepgram":
+                    deepgram_client = DeepgramClient(deepgram_key)
+                    deepgram_options = PrerecordedOptions(
+                        model="nova-2",
+                        language="en",
+                        smart_format=True,
+                        punctuate=True,
+                        paragraphs=True,
+                        utterances=True,
+                    )
+                    transcription = transcribe_file_deepgram(deepgram_client, mono_resampled_audio_path, deepgram_options)
+                    transcript = [
+                        {
+                            "content": utterance["transcript"],
+                            "start": utterance["start"],
+                            "end": utterance["end"],
+                        }
+                        for utterance in transcription["results"]["utterances"]
+                    ]
+                else:  # Groq
+                    groq_client = Groq(api_key=groq_key)
+                    transcription = transcribe_file_groq(groq_client, mono_resampled_audio_path, prompt=groq_prompt)
+                    transcript = [
+                        {
+                            "content": segment["text"],
+                            "start": segment["start"],
+                            "end": segment["end"],
+                        }
+                        for segment in transcription["segments"]
+                    ]
+
+                save_transcription(transcription, project_path)
+                save_transcript(transcript, project_path)
+
+            results = {
+                "transcript": transcript,
+                "transcription_only": True
+            }
+            save_checkpoint(project_path, CHECKPOINTS['TRANSCRIBE_ONLY_COMPLETE'], {
+                'results': results
+            })
+        else:
+            results = handle_transcription(
+                unsilenced_video_path,
+                mono_resampled_audio_path,
+                project_path,
+                api,
+                num_topics,
+                groq_prompt
+            )
     else:
         results = checkpoint['data']['results']
 
-    save_checkpoint(project_path, CHECKPOINTS['PROCESS_COMPLETE'], {
+    final_checkpoint = CHECKPOINTS['TRANSCRIBE_ONLY_COMPLETE'] if transcribe_only else CHECKPOINTS['PROCESS_COMPLETE']
+    save_checkpoint(project_path, final_checkpoint, {
         'results': results
     })
 
