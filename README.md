@@ -12,17 +12,27 @@ This project represents a collaboration between human expertise and AI implement
 
 ### New Features & Capabilities
 
-#### Software Detection Pipeline
-- **OCR Detection**: Identifies software applications through text recognition
-- **Logo Detection**: Template-based matching for software logos
-- **Visual Analysis**: Frame-by-frame software detection with configurable thresholds
-- **Smart Thumbnailing**: Intelligent thumbnail generation and analysis
+#### Intelligent Analysis Pipeline
+- **Advanced Topic Modeling**:
+  - OpenRouter phi-4 model integration
+  - Smart boundary detection with similarity analysis
+  - Async processing with concurrent batches
+  - Context-aware topic transitions
+  - Automatic result caching
 
-#### Enhanced Topic Modeling
-- **OpenRouter Integration**: Using microsoft/phi-4 for advanced topic analysis
-- **Smart Batching**: Similarity-based content segmentation
-- **Parallel Processing**: Efficient handling of large transcripts
-- **Context-Aware Analysis**: Considers previous segments for better topic transitions
+- **Enhanced Visual Analysis**:
+  - Software detection through OCR and logos
+  - Frame-by-frame Gemini analysis
+  - Adaptive thumbnail generation
+  - YouTube thumbnail integration
+  - Confidence-based detection
+
+- **Robust Project Management**:
+  - Comprehensive checkpoint system
+  - Progress tracking and recovery
+  - Metadata management
+  - Cached results for performance
+  - Error handling and resumption
 
 ### User-Provided Specifications:
 
@@ -180,21 +190,43 @@ video-topic-splitter -i your_video.mp4 -o output_directory \
 - Groq: More contextual understanding
 - Custom prompting available for Groq
 
-### Topic Analysis
-- OpenRouter phi-4 model for advanced topic analysis with:
-  - Async processing with concurrent batch analysis
-  - Smart boundary detection using cosine similarity
-  - Context-aware analysis with previous segment consideration
-  - Confidence scoring for topic transitions
-  - Automatic caching for performance optimization
-- Advanced text processing:
-  - TF-IDF vectorization for similarity analysis
-  - Stopword filtering and text preprocessing
-  - NLTK integration for linguistic analysis
-- Robust error handling:
-  - Configurable retry mechanism
-  - Progress tracking with detailed logging
-  - Checkpoint system for long processes
+### Analysis Features
+
+#### Topic Analysis
+- OpenRouter phi-4 model integration:
+  - Smart boundary detection
+  - Async batch processing
+  - Context-aware transitions
+  - Confidence scoring
+  - Result caching
+- Text processing:
+  - TF-IDF analysis
+  - NLTK integration
+  - Stopword handling
+
+#### Visual Processing
+- Software detection:
+  - OCR-based text recognition
+  - Logo template matching
+  - Version information extraction
+- Thumbnail management:
+  - Adaptive interval generation
+  - YouTube integration
+  - Quality control
+- Gemini analysis:
+  - Frame-by-frame processing
+  - Software usage detection
+  - UI element identification
+
+#### Project Management
+- Checkpoint system:
+  - Progress tracking
+  - State recovery
+  - Result caching
+- Error handling:
+  - Automatic retries
+  - Partial result saving
+  - Resume capability
 
 ### Visual Analysis
 - Frame-by-frame analysis using Gemini
