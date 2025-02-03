@@ -181,10 +181,20 @@ video-topic-splitter -i your_video.mp4 -o output_directory \
 - Custom prompting available for Groq
 
 ### Topic Analysis
-- OpenRouter phi-4 model for advanced topic analysis
-- Smart batching with similarity-based segmentation
-- Parallel processing for efficient analysis
-- Context-aware topic transitions
+- OpenRouter phi-4 model for advanced topic analysis with:
+  - Async processing with concurrent batch analysis
+  - Smart boundary detection using cosine similarity
+  - Context-aware analysis with previous segment consideration
+  - Confidence scoring for topic transitions
+  - Automatic caching for performance optimization
+- Advanced text processing:
+  - TF-IDF vectorization for similarity analysis
+  - Stopword filtering and text preprocessing
+  - NLTK integration for linguistic analysis
+- Robust error handling:
+  - Configurable retry mechanism
+  - Progress tracking with detailed logging
+  - Checkpoint system for long processes
 
 ### Visual Analysis
 - Frame-by-frame analysis using Gemini
@@ -232,9 +242,23 @@ output_directory/
 video-topic-splitter -i video.mp4 -o output --api groq --groq-prompt "Technical presentation context"
 ```
 
-### Adjusting Topic Count
+### Topic Analysis Configuration
 ```bash
+# Basic topic count adjustment
 video-topic-splitter -i video.mp4 -o output --topics 7
+
+# Advanced configuration via environment variables
+export TOPIC_ANALYZER_BATCH_SIZE=5        # Number of sentences per batch
+export TOPIC_ANALYZER_MAX_CONCURRENT=3    # Maximum concurrent API calls
+export TOPIC_ANALYZER_SIMILARITY_THRESHOLD=0.7  # Boundary detection threshold
+export TOPIC_ANALYZER_MAX_RETRIES=3       # API retry attempts
+
+# The analyzer automatically:
+# - Batches content for optimal processing
+# - Detects natural topic boundaries
+# - Caches results for performance
+# - Handles API rate limiting
+# - Provides confidence scores for transitions
 ```
 
 ### Software Detection
