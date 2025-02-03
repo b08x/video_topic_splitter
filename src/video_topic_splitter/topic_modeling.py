@@ -19,6 +19,7 @@ import tqdm
 
 from .constants import CHECKPOINTS
 from .project import save_checkpoint
+from .prompt_templates import get_topic_prompt
 
 # Download required NLTK data
 try:
@@ -34,7 +35,7 @@ class TopicAnalyzer:
     
     def __init__(self, max_retries: int = 3, retry_delay: int = 5, 
                  batch_size: int = 5, max_concurrent: int = 3,
-                 similarity_threshold: float = 0.7):
+                 similarity_threshold: float = 0.7, register: str = "it-workflow"):
         """Initialize the TopicAnalyzer.
         
         Args:
@@ -43,6 +44,7 @@ class TopicAnalyzer:
             batch_size: Number of sentences to analyze together
             max_concurrent: Maximum number of concurrent API calls
             similarity_threshold: Threshold for text similarity (0-1)
+            register: Analysis register (it-workflow, gen-ai, tech-support)
         """
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
@@ -61,6 +63,7 @@ class TopicAnalyzer:
         self.batch_size = batch_size
         self.max_concurrent = max_concurrent
         self.similarity_threshold = similarity_threshold
+        self.register = register
         self.semaphore = asyncio.Semaphore(max_concurrent)
         
         # Initialize text processing tools
@@ -90,29 +93,9 @@ class TopicAnalyzer:
                 context = (f"Previous segment context:\n"
                           f"Content: {previous_segment['content']}\n"
                           f"Topic: {previous_segment.get('topic', 'Unknown')}\n\n")
-
-            prompt = f"""
-            {context}
-            Analyze the following segment:
-            {current_segment['content']}
-
-            Provide a structured analysis with:
-            1. Main topic (single phrase)
-            2. 5-10 relevant keywords
-            3. Topic relationship to previous segment (if provided):
-               - CONTINUATION: same topic
-               - SHIFT: related but different
-               - NEW: completely new topic
-            4. Confidence score (0-100)
-
-            Format response as JSON:
-            {{
-                "topic": "main topic",
-                "keywords": ["keyword1", "keyword2", ...],
-                "relationship": "CONTINUATION|SHIFT|NEW",
-                "confidence": 85
-            }}
-            """
+            
+            context += f"Analyze the following segment:\n{current_segment['content']}"
+            prompt = get_topic_prompt(self.register, context)
 
             for attempt in range(self.max_retries):
                 try:
@@ -291,9 +274,9 @@ class TopicAnalyzer:
         print(f"Identified {len(segments)} segments.")
         return segments
 
-def process_transcript(transcript: List[Dict], project_path: str, num_topics: int = 5) -> Dict:
+def process_transcript(transcript: List[Dict], project_path: str, num_topics: int = 5, register: str = "it-workflow") -> Dict:
     """Process transcript for topic modeling and segmentation."""
-    analyzer = TopicAnalyzer()
+    analyzer = TopicAnalyzer(register=register)
     
     # Identify segments with topic analysis
     segments = analyzer.identify_segments(transcript)
@@ -323,6 +306,7 @@ def process_transcript(transcript: List[Dict], project_path: str, num_topics: in
             for i, segment in enumerate(segments)
         ],
         "segments": metadata,
+        "register": register
     }
 
     # Save results

@@ -25,6 +25,7 @@ from .transcription import (
 )
 from .topic_modeling import process_transcript
 from .video_analysis import split_and_analyze_video
+from .prompt_templates import get_topic_prompt, get_analysis_prompt
 
 load_dotenv()
 
@@ -106,7 +107,7 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
 def handle_transcription(video_path, audio_path, project_path, api="deepgram", num_topics=2, 
                        groq_prompt=None, software_list=None, logo_db_path=None, 
                        ocr_lang="eng", logo_threshold=0.8, thumbnail_interval=5,
-                       max_thumbnails=5, min_thumbnail_confidence=0.7):
+                       max_thumbnails=5, min_thumbnail_confidence=0.7, register="it-workflow"):
     """Handle transcription of video/audio content."""
     segments_dir = os.path.join(project_path, "segments")
     os.makedirs(segments_dir, exist_ok=True)
@@ -151,6 +152,9 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
             ]
         else:  # Groq
             groq_client = Groq(api_key=groq_key)
+            # Use register-specific prompt if no custom prompt provided
+            if not groq_prompt:
+                groq_prompt = get_topic_prompt(register, "Transcribe with focus on technical details and terminology.")
             transcription = transcribe_file_groq(groq_client, audio_path, prompt=groq_prompt)
             transcript = [
                 {
@@ -168,7 +172,7 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
         'transcript': transcript
     })
 
-    results = process_transcript(transcript, project_path, num_topics)
+    results = process_transcript(transcript, project_path, num_topics, register=register)
 
     # Split the video and analyze segments
     try:
@@ -182,7 +186,8 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
             logo_threshold,
             thumbnail_interval,
             max_thumbnails,
-            min_thumbnail_confidence
+            min_thumbnail_confidence,
+            register=register
         )
         
         # Update results with analyzed segments
@@ -219,7 +224,8 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
 def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, 
                  skip_unsilence=False, transcribe_only=False, is_youtube_url=False, 
                  software_list=None, logo_db_path=None, ocr_lang="eng", logo_threshold=0.8,
-                 thumbnail_interval=5, max_thumbnails=5, min_thumbnail_confidence=0.7):
+                 thumbnail_interval=5, max_thumbnails=5, min_thumbnail_confidence=0.7,
+                 register="it-workflow"):
     """Main video processing pipeline."""
     from .project import load_checkpoint
     
@@ -292,6 +298,9 @@ def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_p
                     ]
                 else:  # Groq
                     groq_client = Groq(api_key=groq_key)
+                    # Use register-specific prompt if no custom prompt provided
+                    if not groq_prompt:
+                        groq_prompt = get_topic_prompt(register, "Transcribe with focus on technical details and terminology.")
                     transcription = transcribe_file_groq(groq_client, mono_resampled_audio_path, prompt=groq_prompt)
                     transcript = [
                         {
@@ -326,7 +335,8 @@ def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_p
                 logo_threshold,
                 thumbnail_interval,
                 max_thumbnails,
-                min_thumbnail_confidence
+                min_thumbnail_confidence,
+                register
             )
     else:
         results = checkpoint['data']['results']

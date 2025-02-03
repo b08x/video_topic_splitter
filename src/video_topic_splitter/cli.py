@@ -66,6 +66,12 @@ def main() -> None:
         help="Optional prompt for Groq transcription"
     )
     parser.add_argument(
+        "--register",
+        choices=["it-workflow", "gen-ai", "tech-support"],
+        default="it-workflow",
+        help="Analysis register: it-workflow, gen-ai, or tech-support"
+    )
+    parser.add_argument(
         "--skip-unsilence",
         action="store_true",
         help="Skip silence removal processing"

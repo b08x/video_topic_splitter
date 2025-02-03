@@ -16,6 +16,7 @@ import cv2
 from .ocr_detection import detect_software_names
 from .logo_detection import detect_software_logos
 from .thumbnail_utils import ThumbnailManager
+from .prompt_templates import get_analysis_prompt
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -103,7 +104,8 @@ def analyze_thumbnails(thumbnails, software_list=None, logo_db_path=None, ocr_la
     return results
 
 def analyze_segment_with_gemini(segment_path, transcript, software_list=None, logo_db_path=None, 
-                              ocr_lang="eng", logo_threshold=0.8, min_thumbnail_confidence=0.7):
+                              ocr_lang="eng", logo_threshold=0.8, min_thumbnail_confidence=0.7,
+                              register="it-workflow"):
     """Analyze a video segment using Google's Gemini model and software detection."""
     print(f"Analyzing segment: {segment_path}")
     
@@ -167,17 +169,15 @@ def analyze_segment_with_gemini(segment_path, transcript, software_list=None, lo
         image = Image.fromarray(first_frame)
         video.close()
 
-        # Prepare the prompt with software detection focus and results
+        # Build software detection context
         software_context = ""
         if software_list:
             software_context = (
-                f"\n\nSpecifically look for these software applications: {', '.join(software_list)}. "
-                f"For each detected application, note its name, any visible version information, "
-                f"and what actions are being performed in it."
+                f"\n\nDetected software applications:\n"
+                f"Software list: {', '.join(software_list)}\n"
             )
             
             if software_detections:
-                software_context += "\n\nDetected software applications:"
                 for detection in software_detections:
                     software_context += f"\nAt {detection['time']:.2f}s:"
                     if detection['ocr_matches']:
@@ -189,17 +189,8 @@ def analyze_segment_with_gemini(segment_path, transcript, software_list=None, lo
                             f"{m['software']} (confidence: {m['confidence']:.2f})" for m in detection['logo_matches']
                         )
         
-        prompt = (
-            f"Analyze this video segment with a focus on identifying software applications. "
-            f"The transcript for this segment is: '{transcript}'\n\n"
-            f"Please identify:\n"
-            f"1. Any visible software applications, their interfaces, and windows\n"
-            f"2. Specific UI elements that indicate which software is being used\n"
-            f"3. Any version information visible in title bars or menus\n"
-            f"4. Actions or operations being performed in the software\n"
-            f"5. How the visual elements relate to the transcript{software_context}\n\n"
-            f"Format the software-related findings in a structured way."
-        )
+        # Get register-specific analysis prompt
+        prompt = get_analysis_prompt(register, software_context, transcript)
 
         # Initialize Gemini model
         model = genai.GenerativeModel("gemini-2.0-flash-exp")
@@ -219,7 +210,9 @@ def analyze_segment_with_gemini(segment_path, transcript, software_list=None, lo
         }
 
 def split_and_analyze_video(input_video, segments, output_dir, software_list=None, 
-                          logo_db_path=None, ocr_lang="eng", logo_threshold=0.8):
+                          logo_db_path=None, ocr_lang="eng", logo_threshold=0.8,
+                          thumbnail_interval=5, max_thumbnails=5, min_thumbnail_confidence=0.7,
+                          register="it-workflow"):
     """Split video into segments and analyze each segment with checkpoint support."""
     print("Splitting video into segments and analyzing...")
     
@@ -267,7 +260,9 @@ def split_and_analyze_video(input_video, segments, output_dir, software_list=Non
                     software_list,
                     logo_db_path,
                     ocr_lang,
-                    logo_threshold
+                    logo_threshold,
+                    min_thumbnail_confidence,
+                    register
                 )
                 
                 # Create the analysis result with software information
