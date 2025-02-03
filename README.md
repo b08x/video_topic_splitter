@@ -189,7 +189,11 @@ video-topic-splitter -i your_video.mp4 -o output_directory \
 ### Visual Analysis
 - Frame-by-frame analysis using Gemini
 - Software application detection through OCR and logo matching
-- Smart thumbnail generation and analysis
+- Advanced thumbnail management:
+  - Smart adaptive interval generation
+  - YouTube thumbnail integration
+  - Metadata tracking and management
+  - Quality-controlled JPEG compression
 - Context-aware scene understanding
 - Correlation with transcript content
 
@@ -211,7 +215,9 @@ output_directory/
 │   ├── segment_2.mp4
 │   ├── thumbnails/
 │   │   ├── segment1_thumb1.jpg
-│   │   └── segment2_thumb1.jpg
+│   │   ├── segment2_thumb1.jpg
+│   │   ├── yt_thumbnail_000.jpg  # YouTube source thumbnail
+│   │   └── metadata.json         # Thumbnail tracking and metadata
 │   └── analyzed_segments.json
 ├── transcription.json
 ├── transcript.json
@@ -244,13 +250,28 @@ video-topic-splitter -i video.mp4 -o output \
   --logo-threshold 0.8
 ```
 
-### Thumbnail Configuration
+### Thumbnail Management
 ```bash
+# Basic thumbnail configuration
 video-topic-splitter -i video.mp4 -o output \
   --thumbnail-interval 5 \
   --max-thumbnails 5 \
   --min-thumbnail-confidence 0.7
+
+# The tool automatically:
+# - Adapts intervals for optimal coverage
+# - Manages metadata for tracking
+# - Handles YouTube thumbnails for YouTube URLs
+# - Maintains quality with 85% JPEG compression
+# - Organizes thumbnails in the project structure
 ```
+
+#### YouTube Integration
+When processing YouTube videos, the tool automatically:
+- Downloads the highest quality thumbnail available
+- Integrates it with locally generated thumbnails
+- Maintains source tracking in metadata
+- Provides consistent analysis across sources
 
 ## Troubleshooting
 
