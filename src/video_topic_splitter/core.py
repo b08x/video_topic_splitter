@@ -22,17 +22,12 @@ from .transcription import (
     save_transcription,
     save_transcript
 )
-from .topic_modeling import (
-    preprocess_text,
-    perform_topic_modeling,
-    identify_segments,
-    generate_metadata
-)
+from .topic_modeling import process_transcript
 from .video_analysis import split_and_analyze_video
 
 load_dotenv()
 
-def handle_audio_video(video_path, project_path):
+def handle_audio_video(video_path, project_path, skip_unsilence=False):
     """Process audio from video file with checkpointing and file existence checks."""
     audio_dir = os.path.join(project_path, "audio")
     os.makedirs(audio_dir, exist_ok=True)
@@ -60,19 +55,21 @@ def handle_audio_video(video_path, project_path):
     else:
         print("Using existing normalized video file.")
 
-    # For now, we'll just copy the normalized video to unsilenced path since silence removal is disabled
+    # Handle silence removal based on skip_unsilence flag
     if not os.path.exists(unsilenced_video_path):
-        # import shutil
-        # shutil.copy2(normalized_video_path, unsilenced_video_path)
-        # print("Created unsilenced video file (silence removal currently disabled).")
-        silence_removal_result = remove_silence(
-            normalized_video_path, unsilenced_video_path
-        )
-        if silence_removal_result["status"] == "error":
-            print(f"Error during silence removal: {silence_removal_result['message']}")
-            # Handle the error (e.g., exit or continue without silence removal)
+        if skip_unsilence:
+            import shutil
+            shutil.copy2(normalized_video_path, unsilenced_video_path)
+            print("Skipping silence removal as requested.")
         else:
-            print(silence_removal_result["message"])
+            silence_removal_result = remove_silence(
+                normalized_video_path, unsilenced_video_path
+            )
+            if silence_removal_result["status"] == "error":
+                print(f"Error during silence removal: {silence_removal_result['message']}")
+                raise RuntimeError("Silence removal failed")
+            else:
+                print(silence_removal_result["message"])
     # Extract audio if needed
     if not os.path.exists(raw_audio_path):
         print("Extracting audio from video...")
@@ -105,42 +102,7 @@ def handle_audio_video(video_path, project_path):
 
     return unsilenced_video_path, mono_resampled_audio_path
 
-def process_transcript(transcript, project_path, num_topics=5):
-    """Process transcript for topic modeling and segmentation."""
-    full_text = " ".join([sentence["content"] for sentence in transcript])
-    preprocessed_subjects = preprocess_text(full_text)
-    lda_model, corpus, dictionary = perform_topic_modeling(preprocessed_subjects, num_topics)
-    
-    save_checkpoint(project_path, CHECKPOINTS['TOPIC_MODELING_COMPLETE'], {
-        'lda_model': lda_model,
-        'corpus': corpus,
-        'dictionary': dictionary
-    })
-
-    segments = identify_segments(transcript, lda_model, dictionary, num_topics)
-    save_checkpoint(project_path, CHECKPOINTS['SEGMENTS_IDENTIFIED'], {
-        'segments': segments
-    })
-
-    metadata = generate_metadata(segments, lda_model)
-
-    results = {
-        "topics": [
-            {
-                "topic_id": topic_id,
-                "words": [word for word, _ in lda_model.show_topic(topic_id, topn=10)],
-            }
-            for topic_id in range(num_topics)
-        ],
-        "segments": metadata,
-    }
-
-    results_path = os.path.join(project_path, "results.json")
-    with open(results_path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"Results saved to: {results_path}")
-
-    return results
+# Process transcript function is now imported directly from topic_modeling module
 
 def handle_transcription(video_path, audio_path, project_path, api="deepgram", num_topics=2, groq_prompt=None):
     """Handle transcription of video/audio content."""
@@ -241,7 +203,7 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
 
     return results
 
-def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None):
+def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, skip_unsilence=False):
     """Main video processing pipeline."""
     from .project import load_checkpoint
     
@@ -249,7 +211,7 @@ def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_p
     
     if checkpoint is None or checkpoint['stage'] < CHECKPOINTS['AUDIO_PROCESSED']:
         unsilenced_video_path, mono_resampled_audio_path = handle_audio_video(
-            video_path, project_path
+            video_path, project_path, skip_unsilence
         )
     else:
         unsilenced_video_path = checkpoint['data']['unsilenced_video_path']

@@ -55,6 +55,11 @@ def main() -> None:
         "--groq-prompt",
         help="Optional prompt for Groq transcription"
     )
+    parser.add_argument(
+        "--skip-unsilence",
+        action="store_true",
+        help="Skip silence removal processing"
+    )
     
     args = parser.parse_args()
 
@@ -91,7 +96,8 @@ def main() -> None:
                 project_path,
                 args.api,
                 args.topics,
-                args.groq_prompt
+                args.groq_prompt,
+                args.skip_unsilence
             )
 
         print(f"\nProcessing complete. Project folder: {project_path}")

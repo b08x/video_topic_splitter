@@ -1,175 +1,162 @@
-"""Topic modeling and text analysis functionality."""
+"""Topic modeling using OpenRouter with microsoft/phi-4 model."""
 
 import os
 import json
-import spacy
+import time
+from typing import Dict, List, Optional
 import progressbar
-from gensim import corpora
-from gensim.models import LdaMulticore
-from gensim.models.phrases import Phrases, Phraser
-import os
 from openai import OpenAI
 
 from .constants import CHECKPOINTS
 from .project import save_checkpoint
 
-# Load spaCy model
-nlp = spacy.load("en_core_web_sm")
 
-import os
-
-def preprocess_text(text, custom_stopwords=None, stopwords_file_path="/tmp/custom_stop_words.txt"):
-    """Preprocess text for topic modeling."""
-    print("Preprocessing text...")
-    doc = nlp(text)
+class TopicAnalyzer:
+    """Class to handle topic analysis using OpenRouter's phi-4 model."""
     
-    if stopwords_file_path:
-        try:
-            with open(stopwords_file_path, 'r') as f:
-                file_stopwords = [line.strip() for line in f]
-                if custom_stopwords:
-                    custom_stopwords.extend(file_stopwords)
-                else:
-                    custom_stopwords = file_stopwords
-        except FileNotFoundError:
-            print(f"Stopwords file not found at: {stopwords_file_path}")
-        except Exception as e:
-            print(f"Error reading stopwords file: {e}")
-
-    sentences = []
-    for sent in doc.sents:
-        sentence = []
-        for token in sent:
-            if token.ent_type_:
-                sentence.append(get_compound_subject(token))
-            elif "subj" in token.dep_:
-                if token.dep_ in ["nsubj", "nsubjpass", "csubj"]:
-                    sentence.append(get_compound_subject(token))
-            elif not token.is_stop and not token.is_punct and token.is_alpha and (custom_stopwords is None or token.lemma_.lower() not in custom_stopwords):
-                sentence.append(token.lemma_.lower())
-        sentences.append(sentence)
-
-    cleaned_sentences = [list(s) for s in set(tuple(sent) for sent in sentences) if s]
-
-    # Create bigram and trigram models
-    bigram_model = Phrases(cleaned_sentences, min_count=1, threshold=1)
-    bigram_phraser = Phraser(bigram_model)
-    trigram_model = Phrases(bigram_phraser[cleaned_sentences], min_count=1, threshold=1)
-    trigram_phraser = Phraser(trigram_model)
-
-    # Apply the models
-    sentences_with_bigrams = [bigram_phraser[sent] for sent in cleaned_sentences]
-    sentences_with_trigrams = [trigram_phraser[sent] for sent in sentences_with_bigrams]
-
-    print(f"Text preprocessing complete. Extracted {len(sentences_with_trigrams)} unique sentences with bigrams and trigrams.")
-    return sentences_with_trigrams
-
-def get_compound_subject(token):
-    """Extract compound subjects from a token."""
-    subject = [token.text]
-    for left_token in token.lefts:
-        if left_token.dep_ == "compound":
-            subject.insert(0, left_token.text)
-    for right_token in token.rights:
-        if right_token.dep_ == "compound":
-            subject.append(right_token.text)
-    return " ".join(subject)
-
-def perform_topic_modeling(subjects, num_topics=5):
-    """Perform LDA topic modeling on preprocessed subjects."""
-    print(f"Performing topic modeling with {num_topics} topics...")
-    dictionary = corpora.Dictionary(subjects)
-    corpus = [dictionary.doc2bow(subject) for subject in subjects]
-    lda_model = LdaMulticore(
-        corpus=corpus,
-        id2word=dictionary,
-        num_topics=num_topics,
-        random_state=100,
-        chunksize=100,
-        passes=10,
-        per_word_topics=True,
-    )
-    print("Topic modeling complete.")
-    return lda_model, corpus, dictionary
-
-def perform_topic_modeling_openrouter(text, num_topics=5):
-    """Perform topic modeling using OpenRouter API and microsoft/phi-4 model."""
-    """Perform topic modeling using OpenRouter API and microsoft/phi-4 model with openai library."""
-    print("Performing topic modeling using OpenRouter API with openai library...")
-    api_key = os.getenv("OPENROUTER_API_KEY")
-
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=api_key,
-    )
-
-    try:
-        completion = client.chat.completions.create(
-            extra_headers={
-                "HTTP-Referer": "https://video-topic-splitter.example",  # Replace with your site URL if needed
-                "X-Title": "Video Topic Splitter",  # Replace with your site title if needed
-            },
-            model="microsoft/phi-4",
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"Identify the main topics in the following text and provide keywords for each topic:\\n\\n{text}"
-                }
-            ]
+    def __init__(self, max_retries: int = 3, retry_delay: int = 5):
+        """Initialize the TopicAnalyzer."""
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable is not set")
+            
+        self.client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
         )
-        topics_data = completion.choices[0].message.content
-        print("OpenRouter API response received.")
-        return topics_data  # Return raw response content for now - needs parsing
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
 
-    except Exception as e:
-        print(f"Error during OpenRouter API request: {e}")
-        return None  # Or raise exception
+    def analyze_segment(self, current_segment: Dict, previous_segment: Optional[Dict] = None) -> Dict:
+        """Analyze a segment considering previous context."""
+        context = ""
+        if previous_segment:
+            context = (f"Previous segment context:\n"
+                      f"Content: {previous_segment['content']}\n"
+                      f"Topic: {previous_segment.get('topic', 'Unknown')}\n\n")
 
-def identify_segments(transcript, lda_model, dictionary, num_topics):
-    """Identify video segments based on topic analysis."""
-    print("Identifying segments based on topics...")
-    segments = []
-    current_segment = {"start": 0, "end": 0, "content": "", "topic": None}
+        prompt = f"""
+        {context}
+        Analyze the following segment:
+        {current_segment['content']}
+
+        Provide a structured analysis with:
+        1. Main topic (single phrase)
+        2. 5-10 relevant keywords
+        3. Topic relationship to previous segment (if provided):
+           - CONTINUATION: same topic
+           - SHIFT: related but different
+           - NEW: completely new topic
+        4. Confidence score (0-100)
+
+        Format response as JSON:
+        {{
+            "topic": "main topic",
+            "keywords": ["keyword1", "keyword2", ...],
+            "relationship": "CONTINUATION|SHIFT|NEW",
+            "confidence": 85
+        }}
+        """
+
+        for attempt in range(self.max_retries):
+            try:
+                completion = self.client.chat.completions.create(
+                    extra_headers={
+                        "HTTP-Referer": "https://video-topic-splitter.example",
+                        "X-Title": "Video Topic Splitter",
+                    },
+                    model="microsoft/phi-4",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                )
+                
+                response_text = completion.choices[0].message.content
+                try:
+                    # Extract JSON from response (handle potential text wrapping)
+                    json_str = response_text[response_text.find("{"):response_text.rfind("}")+1]
+                    return json.loads(json_str)
+                except json.JSONDecodeError as e:
+                    print(f"Error parsing JSON response: {e}")
+                    print(f"Raw response: {response_text}")
+                    # Return a formatted response even if JSON parsing fails
+                    return {
+                        "topic": "Unknown",
+                        "keywords": [],
+                        "relationship": "NEW",
+                        "confidence": 0
+                    }
+
+            except Exception as e:
+                if attempt < self.max_retries - 1:
+                    print(f"Attempt {attempt + 1} failed: {str(e)}. Retrying in {self.retry_delay} seconds...")
+                    time.sleep(self.retry_delay)
+                else:
+                    print(f"All attempts failed: {str(e)}")
+                    raise
+
+    def identify_segments(self, transcript: List[Dict]) -> List[Dict]:
+        """Identify segments based on topic analysis."""
+        print("Identifying segments based on topics...")
+        segments = []
+        current_segment = None
+        previous_segment = None
+
+        for sentence in progressbar.progressbar(transcript):
+            if not current_segment:
+                current_segment = {
+                    "start": sentence["start"],
+                    "end": sentence["end"],
+                    "content": sentence["content"],
+                }
+            else:
+                # Analyze current content with context
+                analysis = self.analyze_segment(
+                    {"content": current_segment["content"]},
+                    previous_segment
+                )
+                
+                # Decide whether to start a new segment
+                if (analysis["relationship"] == "NEW" and analysis["confidence"] > 70) or \
+                   (analysis["relationship"] == "SHIFT" and analysis["confidence"] > 85):
+                    # Finalize current segment
+                    current_segment["end"] = sentence["start"]
+                    current_segment["topic"] = analysis["topic"]
+                    current_segment["keywords"] = analysis["keywords"]
+                    segments.append(current_segment)
+                    
+                    # Start new segment
+                    previous_segment = current_segment
+                    current_segment = {
+                        "start": sentence["start"],
+                        "end": sentence["end"],
+                        "content": sentence["content"],
+                    }
+                else:
+                    # Continue current segment
+                    current_segment["end"] = sentence["end"]
+                    current_segment["content"] += " " + sentence["content"]
+
+        # Handle last segment
+        if current_segment:
+            analysis = self.analyze_segment(
+                {"content": current_segment["content"]},
+                previous_segment
+            )
+            current_segment["topic"] = analysis["topic"]
+            current_segment["keywords"] = analysis["keywords"]
+            segments.append(current_segment)
+
+        print(f"Identified {len(segments)} segments.")
+        return segments
+
+def process_transcript(transcript: List[Dict], project_path: str, num_topics: int = 5) -> Dict:
+    """Process transcript for topic modeling and segmentation."""
+    analyzer = TopicAnalyzer()
     
-    preprocessed_sentences = preprocess_text(" ".join([sentence["content"] for sentence in transcript]))
+    # Identify segments with topic analysis
+    segments = analyzer.identify_segments(transcript)
     
-    sentence_index = 0
-    for sentence in progressbar.progressbar(transcript):
-        if not preprocessed_sentences:
-            continue
-        
-        if sentence_index >= len(preprocessed_sentences):
-            sentence_index = len(preprocessed_sentences) - 1
-        
-        bow = dictionary.doc2bow(preprocessed_sentences[sentence_index])
-        topic_dist = lda_model.get_document_topics(bow)
-        dominant_topic = max(topic_dist, key=lambda x: x[1])[0] if topic_dist else None
-
-        if dominant_topic != current_segment["topic"]:
-            if current_segment["content"]:
-                current_segment["end"] = sentence["start"]
-                segments.append(current_segment)
-            current_segment = {
-                "start": sentence["start"],
-                "end": sentence["end"],
-                "content": sentence["content"],
-                "topic": dominant_topic,
-            }
-        else:
-            current_segment["end"] = sentence["end"]
-            current_segment["content"] += " " + sentence["content"]
-        
-        sentence_index += 1
-
-    if current_segment["content"]:
-        segments.append(current_segment)
-
-    print(f"Identified {len(segments)} segments.")
-    return segments
-
-def generate_metadata(segments, lda_model):
-    """Generate metadata for identified segments."""
-    print("Generating metadata for segments...")
+    # Generate metadata
     metadata = []
     for i, segment in enumerate(progressbar.progressbar(segments)):
         segment_metadata = {
@@ -178,59 +165,32 @@ def generate_metadata(segments, lda_model):
             "end_time": segment["end"],
             "duration": segment["end"] - segment["start"],
             "dominant_topic": segment["topic"],
-            "top_keywords": [
-                word for word, _ in lda_model.show_topic(segment["topic"], topn=5)
-            ],
+            "top_keywords": segment["keywords"],
             "transcript": segment["content"],
         }
         metadata.append(segment_metadata)
-    print("Metadata generation complete.")
-    return metadata
 
-def process_transcript(transcript, project_path, num_topics=5):
-    """Process transcript for topic modeling and segmentation."""
-    full_text = " ".join([sentence["content"] for sentence in transcript])
-
-    # --- Test OpenRouter API ---
-    test_text = "This is a sample text about machine learning and natural language processing."
-    openrouter_response = perform_topic_modeling_openrouter(test_text, num_topics=3)
-    print("OpenRouter API Response (Test):")
-    print(openrouter_response)
-    # --- End Test ---
-
-    preprocessed_subjects = preprocess_text(full_text)
-    
-    # LDA Topic Modeling (Old implementation - Commented out)
-    # lda_model, corpus, dictionary = perform_topic_modeling(preprocessed_subjects, num_topics)
-    # save_checkpoint(project_path, CHECKPOINTS['TOPIC_MODELING_COMPLETE'], {
-    #     'lda_model': lda_model,
-    #     'corpus': corpus,
-    #     'dictionary': dictionary
-    # })
-    # segments = identify_segments(transcript, lda_model, dictionary, num_topics)
-    # metadata = generate_metadata(segments, lda_model)
-
-    # OpenRouter Topic Modeling (New implementation)
-    openrouter_topics = perform_topic_modeling_openrouter(full_text, num_topics)
-    # Placeholder for segment identification and metadata generation using OpenRouter topics
-    segments = []  # Placeholder
-    metadata = []  # Placeholder
-
-
+    # Create results structure
     results = {
         "topics": [
             {
-                "topic_id": topic_id,
-                "words": ["word1", "word2", "word3"]  # Placeholder - needs to be updated based on OpenRouter response
+                "topic_id": i,
+                "topic": segment["topic"],
+                "words": segment["keywords"]
             }
-            for topic_id in range(num_topics)
+            for i, segment in enumerate(segments)
         ],
         "segments": metadata,
     }
 
+    # Save results
     results_path = os.path.join(project_path, "results.json")
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"Results saved to: {results_path}")
+
+    save_checkpoint(project_path, CHECKPOINTS['TOPIC_MODELING_COMPLETE'], {
+        'results': results
+    })
 
     return results
