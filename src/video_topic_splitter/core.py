@@ -5,6 +5,7 @@ import os
 import json
 from dotenv import load_dotenv
 import videogrep
+from .youtube import download_video
 from deepgram import DeepgramClient, PrerecordedOptions
 from groq import Groq
 
@@ -22,17 +23,13 @@ from .transcription import (
     save_transcription,
     save_transcript
 )
-from .topic_modeling import (
-    preprocess_text,
-    perform_topic_modeling,
-    identify_segments,
-    generate_metadata
-)
+from .topic_modeling import process_transcript
 from .video_analysis import split_and_analyze_video
+from .prompt_templates import get_topic_prompt, get_analysis_prompt
 
 load_dotenv()
 
-def handle_audio_video(video_path, project_path):
+def handle_audio_video(video_path, project_path, skip_unsilence=False):
     """Process audio from video file with checkpointing and file existence checks."""
     audio_dir = os.path.join(project_path, "audio")
     os.makedirs(audio_dir, exist_ok=True)
@@ -60,19 +57,21 @@ def handle_audio_video(video_path, project_path):
     else:
         print("Using existing normalized video file.")
 
-    # For now, we'll just copy the normalized video to unsilenced path since silence removal is disabled
+    # Handle silence removal based on skip_unsilence flag
     if not os.path.exists(unsilenced_video_path):
-        # import shutil
-        # shutil.copy2(normalized_video_path, unsilenced_video_path)
-        # print("Created unsilenced video file (silence removal currently disabled).")
-        silence_removal_result = remove_silence(
-            normalized_video_path, unsilenced_video_path
-        )
-        if silence_removal_result["status"] == "error":
-            print(f"Error during silence removal: {silence_removal_result['message']}")
-            # Handle the error (e.g., exit or continue without silence removal)
+        if skip_unsilence:
+            import shutil
+            shutil.copy2(normalized_video_path, unsilenced_video_path)
+            print("Skipping silence removal as requested.")
         else:
-            print(silence_removal_result["message"])
+            silence_removal_result = remove_silence(
+                normalized_video_path, unsilenced_video_path
+            )
+            if silence_removal_result["status"] == "error":
+                print(f"Error during silence removal: {silence_removal_result['message']}")
+                raise RuntimeError("Silence removal failed")
+            else:
+                print(silence_removal_result["message"])
     # Extract audio if needed
     if not os.path.exists(raw_audio_path):
         print("Extracting audio from video...")
@@ -105,44 +104,10 @@ def handle_audio_video(video_path, project_path):
 
     return unsilenced_video_path, mono_resampled_audio_path
 
-def process_transcript(transcript, project_path, num_topics=5):
-    """Process transcript for topic modeling and segmentation."""
-    full_text = " ".join([sentence["content"] for sentence in transcript])
-    preprocessed_subjects = preprocess_text(full_text)
-    lda_model, corpus, dictionary = perform_topic_modeling(preprocessed_subjects, num_topics)
-    
-    save_checkpoint(project_path, CHECKPOINTS['TOPIC_MODELING_COMPLETE'], {
-        'lda_model': lda_model,
-        'corpus': corpus,
-        'dictionary': dictionary
-    })
-
-    segments = identify_segments(transcript, lda_model, dictionary, num_topics)
-    save_checkpoint(project_path, CHECKPOINTS['SEGMENTS_IDENTIFIED'], {
-        'segments': segments
-    })
-
-    metadata = generate_metadata(segments, lda_model)
-
-    results = {
-        "topics": [
-            {
-                "topic_id": topic_id,
-                "words": [word for word, _ in lda_model.show_topic(topic_id, topn=10)],
-            }
-            for topic_id in range(num_topics)
-        ],
-        "segments": metadata,
-    }
-
-    results_path = os.path.join(project_path, "results.json")
-    with open(results_path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"Results saved to: {results_path}")
-
-    return results
-
-def handle_transcription(video_path, audio_path, project_path, api="deepgram", num_topics=2, groq_prompt=None):
+def handle_transcription(video_path, audio_path, project_path, api="deepgram", num_topics=2, 
+                       groq_prompt=None, software_list=None, logo_db_path=None, 
+                       ocr_lang="eng", logo_threshold=0.8, thumbnail_interval=5,
+                       max_thumbnails=5, min_thumbnail_confidence=0.7, register="it-workflow"):
     """Handle transcription of video/audio content."""
     segments_dir = os.path.join(project_path, "segments")
     os.makedirs(segments_dir, exist_ok=True)
@@ -187,6 +152,9 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
             ]
         else:  # Groq
             groq_client = Groq(api_key=groq_key)
+            # Use register-specific prompt if no custom prompt provided
+            if not groq_prompt:
+                groq_prompt = get_topic_prompt(register, "Transcribe with focus on technical details and terminology.")
             transcription = transcribe_file_groq(groq_client, audio_path, prompt=groq_prompt)
             transcript = [
                 {
@@ -204,11 +172,23 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
         'transcript': transcript
     })
 
-    results = process_transcript(transcript, project_path, num_topics)
+    results = process_transcript(transcript, project_path, num_topics, register=register)
 
     # Split the video and analyze segments
     try:
-        analyzed_segments = split_and_analyze_video(video_path, results["segments"], segments_dir)
+        analyzed_segments = split_and_analyze_video(
+            video_path, 
+            results["segments"], 
+            segments_dir, 
+            software_list,
+            logo_db_path,
+            ocr_lang,
+            logo_threshold,
+            thumbnail_interval,
+            max_thumbnails,
+            min_thumbnail_confidence,
+            register=register
+        )
         
         # Update results with analyzed segments
         results["analyzed_segments"] = analyzed_segments
@@ -241,33 +221,128 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
 
     return results
 
-def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None):
+def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, 
+                 skip_unsilence=False, transcribe_only=False, is_youtube_url=False, 
+                 software_list=None, logo_db_path=None, ocr_lang="eng", logo_threshold=0.8,
+                 thumbnail_interval=5, max_thumbnails=5, min_thumbnail_confidence=0.7,
+                 register="it-workflow"):
     """Main video processing pipeline."""
     from .project import load_checkpoint
     
     checkpoint = load_checkpoint(project_path)
+
+    # Handle YouTube video download if needed
+    if is_youtube_url:
+        if checkpoint is None or checkpoint['stage'] < CHECKPOINTS['YOUTUBE_DOWNLOAD_COMPLETE']:
+            print("Downloading YouTube video...")
+            download_path = os.path.join(project_path, "source_video.mp4")
+            result = download_video(video_path, download_path, project_path)  # Pass project_path for thumbnail download
+            
+            if result["status"] == "error":
+                raise RuntimeError(f"YouTube download failed: {result['message']}")
+                
+            video_path = download_path
+            save_checkpoint(project_path, CHECKPOINTS['YOUTUBE_DOWNLOAD_COMPLETE'], {
+                'video_path': video_path,
+                'thumbnail_info': result.get('thumbnail_info')
+            })
+            print(result["message"])
+        else:
+            video_path = checkpoint['data']['video_path']
+            print("Using previously downloaded YouTube video.")
     
     if checkpoint is None or checkpoint['stage'] < CHECKPOINTS['AUDIO_PROCESSED']:
         unsilenced_video_path, mono_resampled_audio_path = handle_audio_video(
-            video_path, project_path
+            video_path, project_path, skip_unsilence
         )
     else:
         unsilenced_video_path = checkpoint['data']['unsilenced_video_path']
         mono_resampled_audio_path = checkpoint['data']['mono_resampled_audio_path']
 
     if checkpoint is None or checkpoint['stage'] < CHECKPOINTS['VIDEO_ANALYZED']:
-        results = handle_transcription(
-            unsilenced_video_path,
-            mono_resampled_audio_path,
-            project_path,
-            api,
-            num_topics,
-            groq_prompt
-        )
+        if transcribe_only:
+            print("Transcribe-only mode: Skipping topic modeling and video analysis...")
+            # Get transcript only
+            print("Parsing transcript with Videogrep...")
+            transcript = videogrep.parse_transcript(unsilenced_video_path)
+            print("Transcript parsing complete.")
+
+            if not transcript:
+                print("No transcript found. Transcribing audio...")
+                deepgram_key = os.getenv("DG_API_KEY")
+                groq_key = os.getenv("GROQ_API_KEY")
+
+                if not deepgram_key:
+                    raise ValueError("DG_API_KEY environment variable is not set")
+                if not groq_key and api == "groq":
+                    raise ValueError("GROQ_API_KEY environment variable is not set")
+
+                if api == "deepgram":
+                    deepgram_client = DeepgramClient(deepgram_key)
+                    deepgram_options = PrerecordedOptions(
+                        model="nova-2",
+                        language="en",
+                        smart_format=True,
+                        punctuate=True,
+                        paragraphs=True,
+                        utterances=True,
+                    )
+                    transcription = transcribe_file_deepgram(deepgram_client, mono_resampled_audio_path, deepgram_options)
+                    transcript = [
+                        {
+                            "content": utterance["transcript"],
+                            "start": utterance["start"],
+                            "end": utterance["end"],
+                        }
+                        for utterance in transcription["results"]["utterances"]
+                    ]
+                else:  # Groq
+                    groq_client = Groq(api_key=groq_key)
+                    # Use register-specific prompt if no custom prompt provided
+                    if not groq_prompt:
+                        groq_prompt = get_topic_prompt(register, "Transcribe with focus on technical details and terminology.")
+                    transcription = transcribe_file_groq(groq_client, mono_resampled_audio_path, prompt=groq_prompt)
+                    transcript = [
+                        {
+                            "content": segment["text"],
+                            "start": segment["start"],
+                            "end": segment["end"],
+                        }
+                        for segment in transcription["segments"]
+                    ]
+
+                save_transcription(transcription, project_path)
+                save_transcript(transcript, project_path)
+
+            results = {
+                "transcript": transcript,
+                "transcription_only": True
+            }
+            save_checkpoint(project_path, CHECKPOINTS['TRANSCRIBE_ONLY_COMPLETE'], {
+                'results': results
+            })
+        else:
+            results = handle_transcription(
+                unsilenced_video_path,
+                mono_resampled_audio_path,
+                project_path,
+                api,
+                num_topics,
+                groq_prompt,
+                software_list,
+                logo_db_path,
+                ocr_lang,
+                logo_threshold,
+                thumbnail_interval,
+                max_thumbnails,
+                min_thumbnail_confidence,
+                register
+            )
     else:
         results = checkpoint['data']['results']
 
-    save_checkpoint(project_path, CHECKPOINTS['PROCESS_COMPLETE'], {
+    final_checkpoint = CHECKPOINTS['TRANSCRIBE_ONLY_COMPLETE'] if transcribe_only else CHECKPOINTS['PROCESS_COMPLETE']
+    save_checkpoint(project_path, final_checkpoint, {
         'results': results
     })
 

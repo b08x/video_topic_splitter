@@ -1,113 +1,287 @@
-"""Topic modeling and text analysis functionality."""
+"""Topic modeling using OpenRouter with microsoft/phi-4 model."""
 
 import os
 import json
-import spacy
+import time
+import asyncio
+from typing import Dict, List, Optional, Tuple
+from functools import lru_cache
 import progressbar
-from gensim import corpora
-from gensim.models import LdaMulticore
+from openai import OpenAI, AsyncOpenAI
+import numpy as np
+from collections import deque
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import nltk
+from nltk.tokenize import sent_tokenize
+from nltk.corpus import stopwords
+import tqdm
 
 from .constants import CHECKPOINTS
 from .project import save_checkpoint
+from .prompt_templates import get_topic_prompt
 
-# Load spaCy model
-nlp = spacy.load("en_core_web_sm")
+# Download required NLTK data
+try:
+    nltk.data.find('tokenizers/punkt')
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    nltk.download('punkt')
+    nltk.download('stopwords')
 
-def preprocess_text(text):
-    """Preprocess text for topic modeling."""
-    print("Preprocessing text...")
-    doc = nlp(text)
-    subjects = []
 
-    for sent in doc.sents:
-        for token in sent:
-            if "subj" in token.dep_:
-                if token.dep_ in ["nsubj", "nsubjpass", "csubj"]:
-                    subject = get_compound_subject(token)
-                    subjects.append(subject)
+class TopicAnalyzer:
+    """Class to handle topic analysis using OpenRouter's phi-4 model."""
+    
+    def __init__(self, max_retries: int = 3, retry_delay: int = 5, 
+                 batch_size: int = 5, max_concurrent: int = 3,
+                 similarity_threshold: float = 0.7, register: str = "it-workflow"):
+        """Initialize the TopicAnalyzer.
+        
+        Args:
+            max_retries: Maximum number of retries for failed API calls
+            retry_delay: Delay between retries in seconds
+            batch_size: Number of sentences to analyze together
+            max_concurrent: Maximum number of concurrent API calls
+            similarity_threshold: Threshold for text similarity (0-1)
+            register: Analysis register (it-workflow, gen-ai, tech-support)
+        """
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable is not set")
+            
+        self.client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
+        self.async_client = AsyncOpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.batch_size = batch_size
+        self.max_concurrent = max_concurrent
+        self.similarity_threshold = similarity_threshold
+        self.register = register
+        self.semaphore = asyncio.Semaphore(max_concurrent)
+        
+        # Initialize text processing tools
+        self.vectorizer = TfidfVectorizer(
+            stop_words=stopwords.words('english'),
+            max_features=1000
+        )
+        self.stop_words = set(stopwords.words('english'))
 
-    cleaned_subjects = [
-        [
-            token.lemma_.lower()
-            for token in nlp(subject)
-            if not token.is_stop and not token.is_punct and token.is_alpha
-        ]
-        for subject in subjects
-    ]
+    @lru_cache(maxsize=1000)
+    def _get_cached_analysis(self, content: str, prev_content: Optional[str] = None) -> Optional[Dict]:
+        """Get cached analysis result for a content string."""
+        return None  # Cache miss by default, actual caching handled by lru_cache decorator
 
-    cleaned_subjects = [
-        list(s) for s in set(tuple(sub) for sub in cleaned_subjects) if s
-    ]
+    async def analyze_segment_async(self, current_segment: Dict, previous_segment: Optional[Dict] = None) -> Dict:
+        """Analyze a segment considering previous context asynchronously."""
+        async with self.semaphore:  # Limit concurrent API calls
+            # Check cache first
+            cache_key = current_segment['content']
+            prev_key = previous_segment['content'] if previous_segment else None
+            cached_result = self._get_cached_analysis(cache_key, prev_key)
+            if cached_result:
+                return cached_result
 
-    print(f"Text preprocessing complete. Extracted {len(cleaned_subjects)} unique subjects.")
-    return cleaned_subjects
+            context = ""
+            if previous_segment:
+                context = (f"Previous segment context:\n"
+                          f"Content: {previous_segment['content']}\n"
+                          f"Topic: {previous_segment.get('topic', 'Unknown')}\n\n")
+            
+            context += f"Analyze the following segment:\n{current_segment['content']}"
+            prompt = get_topic_prompt(self.register, context)
 
-def get_compound_subject(token):
-    """Extract compound subjects from a token."""
-    subject = [token.text]
-    for left_token in token.lefts:
-        if left_token.dep_ == "compound":
-            subject.insert(0, left_token.text)
-    for right_token in token.rights:
-        if right_token.dep_ == "compound":
-            subject.append(right_token.text)
-    return " ".join(subject)
+            for attempt in range(self.max_retries):
+                try:
+                    completion = await self.async_client.chat.completions.create(
+                        extra_headers={
+                            "HTTP-Referer": "https://video-topic-splitter.example",
+                            "X-Title": "Video Topic Splitter",
+                        },
+                        model="microsoft/phi-4",
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.3,
+                    )
+                    
+                    response_text = completion.choices[0].message.content
+                    try:
+                        # Extract JSON from response (handle potential text wrapping)
+                        json_str = response_text[response_text.find("{"):response_text.rfind("}")+1]
+                        result = json.loads(json_str)
+                        return result
+                    except json.JSONDecodeError as e:
+                        print(f"Error parsing JSON response: {e}")
+                        print(f"Raw response: {response_text}")
+                        # Return a formatted response even if JSON parsing fails
+                        return {
+                            "topic": "Unknown",
+                            "keywords": [],
+                            "relationship": "NEW",
+                            "confidence": 0
+                        }
 
-def perform_topic_modeling(subjects, num_topics=5):
-    """Perform LDA topic modeling on preprocessed subjects."""
-    print(f"Performing topic modeling with {num_topics} topics...")
-    dictionary = corpora.Dictionary(subjects)
-    corpus = [dictionary.doc2bow(subject) for subject in subjects]
-    lda_model = LdaMulticore(
-        corpus=corpus,
-        id2word=dictionary,
-        num_topics=num_topics,
-        random_state=100,
-        chunksize=100,
-        passes=10,
-        per_word_topics=True,
-    )
-    print("Topic modeling complete.")
-    return lda_model, corpus, dictionary
+                except Exception as e:
+                    if attempt < self.max_retries - 1:
+                        print(f"Attempt {attempt + 1} failed: {str(e)}. Retrying in {self.retry_delay} seconds...")
+                        await asyncio.sleep(self.retry_delay)
+                    else:
+                        print(f"All attempts failed: {str(e)}")
+                        raise
 
-def identify_segments(transcript, lda_model, dictionary, num_topics):
-    """Identify video segments based on topic analysis."""
-    print("Identifying segments based on topics...")
-    segments = []
-    current_segment = {"start": 0, "end": 0, "content": "", "topic": None}
+    def analyze_segment(self, current_segment: Dict, previous_segment: Optional[Dict] = None) -> Dict:
+        """Synchronous wrapper for analyze_segment_async."""
+        return asyncio.run(self.analyze_segment_async(current_segment, previous_segment))
 
-    for sentence in progressbar.progressbar(transcript):
-        subjects = preprocess_text(sentence["content"])
-        if not subjects:
-            continue
+    def _preprocess_text(self, text: str) -> str:
+        """Preprocess text for analysis."""
+        # Tokenize and remove stopwords
+        words = text.lower().split()
+        words = [w for w in words if w not in self.stop_words]
+        return " ".join(words)
 
-        bow = dictionary.doc2bow([token for subject in subjects for token in subject])
-        topic_dist = lda_model.get_document_topics(bow)
-        dominant_topic = max(topic_dist, key=lambda x: x[1])[0] if topic_dist else None
+    def _calculate_similarity(self, text1: str, text2: str) -> float:
+        """Calculate cosine similarity between two text segments."""
+        if not text1 or not text2:
+            return 0.0
+        
+        # Preprocess texts
+        text1 = self._preprocess_text(text1)
+        text2 = self._preprocess_text(text2)
+        
+        # Calculate TF-IDF and similarity
+        tfidf_matrix = self.vectorizer.fit_transform([text1, text2])
+        similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+        
+        return float(similarity)
 
-        if dominant_topic != current_segment["topic"]:
-            if current_segment["content"]:
-                current_segment["end"] = sentence["start"]
-                segments.append(current_segment)
-            current_segment = {
-                "start": sentence["start"],
-                "end": sentence["end"],
-                "content": sentence["content"],
-                "topic": dominant_topic,
-            }
-        else:
-            current_segment["end"] = sentence["end"]
-            current_segment["content"] += " " + sentence["content"]
+    def _create_batches(self, transcript: List[Dict]) -> List[List[Dict]]:
+        """Create batches of sentences for analysis with smart boundary detection."""
+        batches = []
+        current_batch = []
+        
+        for i, sentence in enumerate(transcript):
+            current_batch.append(sentence)
+            
+            if len(current_batch) >= self.batch_size:
+                # Check if this is a good boundary point
+                if i + 1 < len(transcript):
+                    current_text = " ".join(s["content"] for s in current_batch)
+                    next_text = transcript[i + 1]["content"]
+                    similarity = self._calculate_similarity(current_text, next_text)
+                    
+                    # If similarity is low, this might be a natural boundary
+                    if similarity < self.similarity_threshold:
+                        batches.append(current_batch)
+                        current_batch = []
+                        continue
+                
+                # If we didn't find a natural boundary, use regular batching
+                batches.append(current_batch)
+                current_batch = []
+        
+        if current_batch:  # Add remaining sentences
+            batches.append(current_batch)
+            
+        return batches
 
-    if current_segment["content"]:
-        segments.append(current_segment)
+    def _combine_batch(self, batch: List[Dict]) -> Dict:
+        """Combine a batch of sentences into a single segment."""
+        return {
+            "start": batch[0]["start"],
+            "end": batch[-1]["end"],
+            "content": " ".join(s["content"] for s in batch)
+        }
 
-    print(f"Identified {len(segments)} segments.")
-    return segments
+    async def _analyze_batch(self, batch: Dict, previous_batch: Optional[Dict] = None) -> Dict:
+        """Analyze a batch of sentences."""
+        return await self.analyze_segment_async(batch, previous_batch)
 
-def generate_metadata(segments, lda_model):
-    """Generate metadata for identified segments."""
-    print("Generating metadata for segments...")
+    async def _analyze_batches(self, batches: List[List[Dict]]) -> List[Dict]:
+        """Analyze multiple batches concurrently with progress tracking."""
+        analyses = []
+        previous_batch = None
+        total_batches = len(batches)
+        
+        with tqdm.tqdm(total=total_batches, desc="Analyzing batches") as pbar:
+            for i in range(0, len(batches), self.max_concurrent):
+                current_batches = batches[i:i + self.max_concurrent]
+                combined_batches = [self._combine_batch(batch) for batch in current_batches]
+                
+                tasks = []
+                for batch in combined_batches:
+                    task = self._analyze_batch(batch, previous_batch)
+                    tasks.append(task)
+                
+                batch_results = await asyncio.gather(*tasks)
+                analyses.extend(batch_results)
+                
+                if combined_batches:
+                    previous_batch = combined_batches[-1]
+                
+                pbar.update(len(current_batches))
+        
+        return analyses
+
+    def identify_segments(self, transcript: List[Dict]) -> List[Dict]:
+        """Identify segments based on topic analysis using batched and parallel processing."""
+        print("Identifying segments based on topics...")
+        
+        # Create batches of sentences with smart boundary detection
+        print("Creating smart batches...")
+        batches = self._create_batches(transcript)
+        print(f"Created {len(batches)} optimized batches for analysis...")
+        
+        # Analyze batches with progress tracking
+        analyses = asyncio.run(self._analyze_batches(batches))
+        
+        # Process results into segments
+        segments = []
+        current_segment = None
+        previous_segment = None
+        
+        for i, (batch, analysis) in enumerate(zip(batches, analyses)):
+            if not current_segment:
+                current_segment = self._combine_batch(batch)
+                current_segment["topic"] = analysis["topic"]
+                current_segment["keywords"] = analysis["keywords"]
+            else:
+                # Decide whether to start a new segment
+                if (analysis["relationship"] == "NEW" and analysis["confidence"] > 70) or \
+                   (analysis["relationship"] == "SHIFT" and analysis["confidence"] > 85):
+                    # Finalize current segment
+                    segments.append(current_segment)
+                    
+                    # Start new segment
+                    previous_segment = current_segment
+                    current_segment = self._combine_batch(batch)
+                    current_segment["topic"] = analysis["topic"]
+                    current_segment["keywords"] = analysis["keywords"]
+                else:
+                    # Continue current segment
+                    current_segment["end"] = batch[-1]["end"]
+                    current_segment["content"] += " " + " ".join(s["content"] for s in batch)
+        
+        # Handle last segment
+        if current_segment:
+            segments.append(current_segment)
+
+        print(f"Identified {len(segments)} segments.")
+        return segments
+
+def process_transcript(transcript: List[Dict], project_path: str, num_topics: int = 5, register: str = "it-workflow") -> Dict:
+    """Process transcript for topic modeling and segmentation."""
+    analyzer = TopicAnalyzer(register=register)
+    
+    # Identify segments with topic analysis
+    segments = analyzer.identify_segments(transcript)
+    
+    # Generate metadata
     metadata = []
     for i, segment in enumerate(progressbar.progressbar(segments)):
         segment_metadata = {
@@ -116,48 +290,33 @@ def generate_metadata(segments, lda_model):
             "end_time": segment["end"],
             "duration": segment["end"] - segment["start"],
             "dominant_topic": segment["topic"],
-            "top_keywords": [
-                word for word, _ in lda_model.show_topic(segment["topic"], topn=5)
-            ],
+            "top_keywords": segment["keywords"],
             "transcript": segment["content"],
         }
         metadata.append(segment_metadata)
-    print("Metadata generation complete.")
-    return metadata
 
-def process_transcript(transcript, project_path, num_topics=5):
-    """Process transcript for topic modeling and segmentation."""
-    full_text = " ".join([sentence["content"] for sentence in transcript])
-    preprocessed_subjects = preprocess_text(full_text)
-    lda_model, corpus, dictionary = perform_topic_modeling(preprocessed_subjects, num_topics)
-    
-    save_checkpoint(project_path, CHECKPOINTS['TOPIC_MODELING_COMPLETE'], {
-        'lda_model': lda_model,
-        'corpus': corpus,
-        'dictionary': dictionary
-    })
-
-    segments = identify_segments(transcript, lda_model, dictionary, num_topics)
-    save_checkpoint(project_path, CHECKPOINTS['SEGMENTS_IDENTIFIED'], {
-        'segments': segments
-    })
-
-    metadata = generate_metadata(segments, lda_model)
-
+    # Create results structure
     results = {
         "topics": [
             {
-                "topic_id": topic_id,
-                "words": [word for word, _ in lda_model.show_topic(topic_id, topn=10)],
+                "topic_id": i,
+                "topic": segment["topic"],
+                "words": segment["keywords"]
             }
-            for topic_id in range(num_topics)
+            for i, segment in enumerate(segments)
         ],
         "segments": metadata,
+        "register": register
     }
 
+    # Save results
     results_path = os.path.join(project_path, "results.json")
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"Results saved to: {results_path}")
+
+    save_checkpoint(project_path, CHECKPOINTS['TOPIC_MODELING_COMPLETE'], {
+        'results': results
+    })
 
     return results

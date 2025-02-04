@@ -3,24 +3,34 @@
 import os
 import sys
 import argparse
-from typing import Optional
+from typing import Optional, Tuple
 from dotenv import load_dotenv
 
 from .core import process_video
+from .youtube import is_youtube_url
 from .project import create_project_folder, load_checkpoint
 from .constants import CHECKPOINTS
 from .transcription import load_transcript
 from .topic_modeling import process_transcript
 
-def validate_input_file(input_path: str) -> Optional[str]:
-    """Validate input file exists and has correct extension."""
+def validate_input(input_path: str) -> Tuple[Optional[str], bool]:
+    """Validate input is either a valid file path or YouTube URL.
+    
+    Returns:
+        Tuple[Optional[str], bool]: (error message if any, is_youtube_url)
+    """
+    # Check if input is a YouTube URL
+    if is_youtube_url(input_path):
+        return None, True
+        
+    # Check if input is a valid file
     if not os.path.exists(input_path):
-        return f"Input file not found: {input_path}"
+        return f"Input file not found: {input_path}", False
     
     if not input_path.lower().endswith(('.mp4', '.mkv', '.json')):
-        return f"Unsupported file format. Supported formats: .mp4, .mkv, .json"
+        return f"Unsupported file format. Supported formats: .mp4, .mkv, .json", False
     
-    return None
+    return None, False
 
 def main() -> None:
     """Main entry point for the CLI."""
@@ -31,7 +41,7 @@ def main() -> None:
         "-i",
         "--input",
         required=True,
-        help="Path to the input video file or transcript JSON",
+        help="Path to input video file, YouTube URL, or transcript JSON",
     )
     parser.add_argument(
         "-o",
@@ -55,14 +65,70 @@ def main() -> None:
         "--groq-prompt",
         help="Optional prompt for Groq transcription"
     )
+    parser.add_argument(
+        "--register",
+        choices=["it-workflow", "gen-ai", "tech-support"],
+        default="it-workflow",
+        help="Analysis register: it-workflow, gen-ai, or tech-support"
+    )
+    parser.add_argument(
+        "--skip-unsilence",
+        action="store_true",
+        help="Skip silence removal processing"
+    )
+    parser.add_argument(
+        "--transcribe-only",
+        action="store_true",
+        help="Only perform audio transcription without topic modeling or video analysis"
+    )
+    parser.add_argument(
+        "--software-list",
+        type=str,
+        help="Path to a text file containing list of software applications to detect (one per line)"
+    )
+    parser.add_argument(
+        "--logo-db",
+        type=str,
+        help="Path to directory containing software logo templates"
+    )
+    parser.add_argument(
+        "--ocr-lang",
+        default="eng",
+        help="Language for OCR detection (default: eng)"
+    )
+    parser.add_argument(
+        "--logo-threshold",
+        type=float,
+        default=0.8,
+        help="Confidence threshold for logo detection (0.0-1.0, default: 0.8)"
+    )
+    parser.add_argument(
+        "--thumbnail-interval",
+        type=int,
+        default=5,
+        help="Time interval between thumbnails in seconds (default: 5)"
+    )
+    parser.add_argument(
+        "--max-thumbnails",
+        type=int,
+        default=5,
+        help="Maximum number of thumbnails to generate per segment (default: 5)"
+    )
+    parser.add_argument(
+        "--min-thumbnail-confidence",
+        type=float,
+        default=0.7,
+        help="Minimum confidence threshold for thumbnail analysis (0.0-1.0, default: 0.7)"
+    )
     
     args = parser.parse_args()
 
     # Load environment variables
     load_dotenv()
 
-    # Validate input file
-    if error := validate_input_file(args.input):
+    # Validate input (file or YouTube URL)
+    error, is_youtube = validate_input(args.input)
+    if error:
         print(f"Error: {error}")
         sys.exit(1)
 
@@ -86,23 +152,60 @@ def main() -> None:
                 "Note: Video splitting and Gemini analysis are not performed when processing a transcript file."
             )
         else:
+            # Read software list if provided
+            software_list = None
+            if args.software_list:
+                if not os.path.exists(args.software_list):
+                    print(f"Error: Software list file not found: {args.software_list}")
+                    sys.exit(1)
+                try:
+                    with open(args.software_list, 'r') as f:
+                        software_list = [line.strip() for line in f if line.strip()]
+                    print(f"Loaded {len(software_list)} software applications to detect")
+                except Exception as e:
+                    print(f"Error reading software list file: {str(e)}")
+                    sys.exit(1)
+
             results = process_video(
                 args.input,
                 project_path,
                 args.api,
                 args.topics,
-                args.groq_prompt
+                args.groq_prompt,
+                args.skip_unsilence,
+                args.transcribe_only,
+                is_youtube_url=is_youtube,
+                software_list=software_list,
+                logo_db_path=args.logo_db,
+                ocr_lang=args.ocr_lang,
+                logo_threshold=args.logo_threshold,
+                thumbnail_interval=args.thumbnail_interval,
+                max_thumbnails=args.max_thumbnails,
+                min_thumbnail_confidence=args.min_thumbnail_confidence
             )
 
         print(f"\nProcessing complete. Project folder: {project_path}")
         print(f"Results saved in: {os.path.join(project_path, 'results.json')}")
-        print("\nTop words for each topic:")
-        for topic in results["topics"]:
-            print(f"Topic {topic['topic_id'] + 1}: {', '.join(topic['words'])}")
-        print(f"\nGenerated and analyzed {len(results['analyzed_segments'])} segments")
+        
+        if args.transcribe_only:
+            print("\nTranscription completed successfully.")
+            print("Transcript and raw transcription data saved in project folder.")
+        else:
+            print("\nTop words for each topic:")
+            for topic in results["topics"]:
+                print(f"Topic {topic['topic_id'] + 1}: {', '.join(topic['words'])}")
+            
+            print(f"\nGenerated and analyzed {len(results['analyzed_segments'])} segments")
+            
+            if args.software_list:
+                print("\nSoftware Detection Results:")
+                for segment in results["analyzed_segments"]:
+                    if "software_detected" in segment and segment["software_detected"]:
+                        print(f"\nSegment {segment['segment_id']} ({segment['start_time']:.2f}s - {segment['end_time']:.2f}s):")
+                        print(f"Analysis: {segment['gemini_analysis']}")
 
-        if not args.input.endswith(".json"):
-            print(f"Video segments saved in: {os.path.join(project_path, 'segments')}")
+            if not args.input.endswith(".json"):
+                print(f"\nVideo segments saved in: {os.path.join(project_path, 'segments')}")
 
     except KeyboardInterrupt:
         print("\nProcess interrupted by user. Progress has been saved.")

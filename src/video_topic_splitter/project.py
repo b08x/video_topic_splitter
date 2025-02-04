@@ -7,9 +7,19 @@ import pickle
 import glob
 from .constants import CHECKPOINTS
 
+from .youtube import is_youtube_url
+
 def create_project_folder(input_path, base_output_dir):
     """Create or find project folder for processing."""
-    base_name = os.path.splitext(os.path.basename(input_path))[0]
+    if is_youtube_url(input_path):
+        # Extract video ID from YouTube URL
+        if 'youtu.be/' in input_path:
+            base_name = input_path.split('youtu.be/')[-1]
+        else:
+            base_name = input_path.split('v=')[-1].split('&')[0]
+        base_name = f"yt_{base_name}"  # Prefix with 'yt_' to identify YouTube videos
+    else:
+        base_name = os.path.splitext(os.path.basename(input_path))[0]
     project_pattern = os.path.join(base_output_dir, f"{base_name}_*")
     existing_projects = glob.glob(project_pattern)
     
