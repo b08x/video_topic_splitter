@@ -26,6 +26,91 @@ This isn't your standard video processing script. It's an intelligent ecosystem 
   - OpenRouter's phi-4 model doesn't just segment—it understands
   - Detecting topic boundaries with the precision of a literary critic
 
+### System Architecture: The Inner Workings 🔄
+
+Our system's architecture is designed for maximum efficiency and modularity. Here's a detailed look at how components interact:
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant CLI
+    participant YTD as YouTube Downloader
+    participant AP as Audio Processor
+    participant TS as Transcription Service
+    participant TA as Topic Analyzer
+    participant VA as Video Analyzer
+    participant TM as Thumbnail Manager
+
+    User->>CLI: Initiate process with options
+    activate CLI
+
+    alt YouTube URL provided
+        CLI->>YTD: Download video
+        YTD-->>CLI: Video file
+    end
+
+    CLI->>AP: Process audio
+    AP->>AP: Extract audio
+    AP->>AP: Normalize audio
+    opt If not skipped
+        AP->>AP: Remove silence
+    end
+    AP-->>CLI: Processed audio
+
+    CLI->>TS: Request transcription
+    TS-->>CLI: Transcript
+
+    CLI->>TA: Analyze topics
+    TA->>TA: Perform LDA analysis
+    TA->>TA: Identify segments
+    TA-->>CLI: Topic analysis results
+
+    CLI->>VA: Analyze video content
+    VA->>VA: Detect software logos
+    VA->>VA: Perform OCR on frames
+    VA->>VA: Analyze frame content
+    VA-->>CLI: Video analysis results
+
+    CLI->>TM: Generate thumbnails
+    TM->>TM: Extract key frames
+    TM->>TM: Create thumbnails
+    TM-->>CLI: Thumbnail set
+
+    CLI-->>User: Complete analysis results
+    deactivate CLI
+```
+
+The sequence diagram above illustrates the detailed flow of operations from user input to final output, showing how each component processes and passes data through the system.
+
+For a high-level overview of how this system integrates into a support workflow:
+
+```mermaid
+flowchart TD
+    A[Support Request Received] --> B{Is Video Analysis Required?}
+    B -->|No| C[Standard Support Process]
+    B -->|Yes| D[Initiate Video Analysis]
+    D --> E[Run Video Processing Sequence]
+    
+    subgraph "Video Processing Sequence"
+    E1[Download Video if URL] --> E2[Process Audio]
+    E2 --> E3[Transcribe Audio]
+    E3 --> E4[Analyze Topics]
+    E4 --> E5[Analyze Video Content]
+    E5 --> E6[Generate Thumbnails]
+    end
+    
+    E --> F[Review Analysis Results]
+    F --> G{Is Further Action Needed?}
+    G -->|Yes| H[Assign to Specialist]
+    G -->|No| I[Update Knowledge Base]
+    H --> J[Resolve Issue]
+    I --> K[Close Support Ticket]
+    J --> K
+    C --> K
+```
+
+This flowchart demonstrates how video analysis fits into the broader support workflow, from initial request to resolution.
+
 ### Specialized Analysis: Navigating Technical Narratives 🔍
 
 Technological Exploration: Precision-Focused Multimedia Analysis
