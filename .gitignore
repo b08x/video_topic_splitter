@@ -4,3 +4,4 @@
 build/**/
 .env
 video_topic_splitter.json
+*.wav
