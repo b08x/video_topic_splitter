@@ -11,5 +11,6 @@ CHECKPOINTS = {
     'TOPIC_MODELING_COMPLETE': 5,
     'SEGMENTS_IDENTIFIED': 6,
     'VIDEO_ANALYZED': 7,
-    'PROCESS_COMPLETE': 8
+    'SCREENSHOT_ANALYZED': 8,  # New checkpoint for screenshot analysis
+    'PROCESS_COMPLETE': 9
 }

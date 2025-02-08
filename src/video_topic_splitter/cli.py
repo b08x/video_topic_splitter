@@ -13,8 +13,12 @@ from .constants import CHECKPOINTS
 from .transcription import load_transcript
 from .topic_modeling import process_transcript
 
-def validate_input(input_path: str) -> Tuple[Optional[str], bool]:
+def validate_input(input_path: str, analyze_screenshot: bool = False) -> Tuple[Optional[str], bool]:
     """Validate input is either a valid file path or YouTube URL.
+    
+    Args:
+        input_path: Path to input file or YouTube URL
+        analyze_screenshot: Whether we're analyzing a screenshot (allows image files)
     
     Returns:
         Tuple[Optional[str], bool]: (error message if any, is_youtube_url)
@@ -27,21 +31,25 @@ def validate_input(input_path: str) -> Tuple[Optional[str], bool]:
     if not os.path.exists(input_path):
         return f"Input file not found: {input_path}", False
     
-    if not input_path.lower().endswith(('.mp4', '.mkv', '.json')):
-        return f"Unsupported file format. Supported formats: .mp4, .mkv, .json", False
+    if analyze_screenshot:
+        if not input_path.lower().endswith(('.png', '.jpg', '.jpeg')):
+            return f"Unsupported image format. Supported formats: .png, .jpg, .jpeg", False
+    else:
+        if not input_path.lower().endswith(('.mp4', '.mkv', '.json')):
+            return f"Unsupported file format. Supported formats: .mp4, .mkv, .json", False
     
     return None, False
 
 def main() -> None:
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
-        description="Process video or transcript for topic-based segmentation and multi-modal analysis"
+        description="Process video/transcript for topic-based segmentation or analyze screenshots"
     )
     parser.add_argument(
         "-i",
         "--input",
         required=True,
-        help="Path to input video file, YouTube URL, or transcript JSON",
+        help="Path to input video file, YouTube URL, transcript JSON, or image file (with --analyze-screenshot)",
     )
     parser.add_argument(
         "-o",
@@ -121,13 +129,23 @@ def main() -> None:
         help="Minimum confidence threshold for thumbnail analysis (0.0-1.0, default: 0.7)"
     )
     
+    parser.add_argument(
+        "--analyze-screenshot",
+        action="store_true",
+        help="Analyze a single screenshot instead of processing video"
+    )
+    parser.add_argument(
+        "--screenshot-context",
+        help="Optional context to consider during screenshot analysis"
+    )
+
     args = parser.parse_args()
 
     # Load environment variables
     load_dotenv()
 
     # Validate input (file or YouTube URL)
-    error, is_youtube = validate_input(args.input)
+    error, is_youtube = validate_input(args.input, args.analyze_screenshot)
     if error:
         print(f"Error: {error}")
         sys.exit(1)
@@ -145,6 +163,55 @@ def main() -> None:
         if checkpoint and checkpoint['stage'] == CHECKPOINTS['PROCESS_COMPLETE']:
             results = checkpoint['data']['results']
             print("Loading results from previous complete run.")
+        elif args.analyze_screenshot:
+            # Read software list if provided
+            software_list = None
+            if args.software_list:
+                if not os.path.exists(args.software_list):
+                    print(f"Error: Software list file not found: {args.software_list}")
+                    sys.exit(1)
+                try:
+                    with open(args.software_list, 'r') as f:
+                        software_list = [line.strip() for line in f if line.strip()]
+                    print(f"Loaded {len(software_list)} software applications to detect")
+                except Exception as e:
+                    print(f"Error reading software list file: {str(e)}")
+                    sys.exit(1)
+
+            from .video_analysis import analyze_screenshot
+            
+            results = analyze_screenshot(
+                args.input,
+                project_path,
+                software_list=software_list,
+                logo_db_path=args.logo_db,
+                ocr_lang=args.ocr_lang,
+                logo_threshold=args.logo_threshold,
+                context=args.screenshot_context
+            )
+            
+            print("\nScreenshot analysis complete.")
+            print(f"Results saved in: {os.path.join(project_path, 'results.json')}")
+
+            if software_list:
+                print("\nSoftware Detection Results:")
+                if results.get("software_detections"):
+                    for detection in results["software_detections"]:
+                        if detection.get('ocr_matches'):
+                            print("\nText detected: " + ", ".join(
+                                f"{m['software']} ({m['detected_text']})" for m in detection['ocr_matches']
+                            ))
+                        if detection.get('logo_matches'):
+                            print("\nLogos detected: " + ", ".join(
+                                f"{m['software']} (confidence: {m['confidence']:.2f})" for m in detection['logo_matches']
+                            ))
+                else:
+                    print("No software detected in the screenshot.")
+                    
+            if results.get('gemini_analysis'):
+                print("\nGemini Analysis:")
+                print(results['gemini_analysis'])
+
         elif args.input.endswith(".json"):
             transcript = load_transcript(args.input)
             results = process_transcript(transcript, project_path, args.topics)
@@ -191,21 +258,22 @@ def main() -> None:
             print("\nTranscription completed successfully.")
             print("Transcript and raw transcription data saved in project folder.")
         else:
-            print("\nTop words for each topic:")
-            for topic in results["topics"]:
-                print(f"Topic {topic['topic_id'] + 1}: {', '.join(topic['words'])}")
-            
-            print(f"\nGenerated and analyzed {len(results['analyzed_segments'])} segments")
-            
-            if args.software_list:
-                print("\nSoftware Detection Results:")
-                for segment in results["analyzed_segments"]:
-                    if "software_detected" in segment and segment["software_detected"]:
-                        print(f"\nSegment {segment['segment_id']} ({segment['start_time']:.2f}s - {segment['end_time']:.2f}s):")
-                        print(f"Analysis: {segment['gemini_analysis']}")
+            if not args.analyze_screenshot:
+                print("\nTop words for each topic:")
+                for topic in results["topics"]:
+                    print(f"Topic {topic['topic_id'] + 1}: {', '.join(topic['words'])}")
+                
+                print(f"\nGenerated and analyzed {len(results['analyzed_segments'])} segments")
+                
+                if args.software_list:
+                    print("\nSoftware Detection Results:")
+                    for segment in results["analyzed_segments"]:
+                        if "software_detected" in segment and segment["software_detected"]:
+                            print(f"\nSegment {segment['segment_id']} ({segment['start_time']:.2f}s - {segment['end_time']:.2f}s):")
+                            print(f"Analysis: {segment['gemini_analysis']}")
 
-            if not args.input.endswith(".json"):
-                print(f"\nVideo segments saved in: {os.path.join(project_path, 'segments')}")
+                if not args.input.endswith(".json"):
+                    print(f"\nVideo segments saved in: {os.path.join(project_path, 'segments')}")
 
     except KeyboardInterrupt:
         print("\nProcess interrupted by user. Progress has been saved.")

@@ -6,7 +6,7 @@ import os
 import json
 import progressbar
 from moviepy.editor import VideoFileClip
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import google.generativeai as genai
 from dotenv import load_dotenv
 import numpy as np
@@ -17,6 +17,8 @@ from .ocr_detection import detect_software_names
 from .logo_detection import detect_software_logos
 from .thumbnail_utils import ThumbnailManager
 from .prompt_templates import get_analysis_prompt
+from .constants import CHECKPOINTS
+from .project import save_checkpoint
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -41,6 +43,112 @@ def save_analyzed_segments(segments_dir, analyzed_segments):
     analysis_file = os.path.join(segments_dir, "analyzed_segments.json")
     with open(analysis_file, 'w') as f:
         json.dump(analyzed_segments, f, indent=2)
+
+def analyze_screenshot(image_path, project_path, software_list=None, logo_db_path=None, 
+                      ocr_lang="eng", logo_threshold=0.8, context=None):
+    """Analyze a single screenshot for software applications using OCR and logo detection.
+    
+    Args:
+        image_path: Path to the image file
+        project_path: Path to save results
+        software_list: Optional list of software names to detect
+        logo_db_path: Optional path to logo database
+        ocr_lang: Language for OCR detection
+        logo_threshold: Confidence threshold for logo detection
+        
+    Returns:
+        dict: Analysis results including Gemini analysis and software detections
+    """
+    # Initialize project with PROJECT_CREATED checkpoint if not already initialized
+    from .project import load_checkpoint
+    if not load_checkpoint(project_path):
+        save_checkpoint(project_path, CHECKPOINTS['PROJECT_CREATED'], {'project_path': project_path})
+    try:
+        # Read the image
+        frame = cv2.imread(image_path)
+        if frame is None:
+            raise ValueError(f"Could not read image file: {image_path}")
+            
+        # Create PIL Image for Gemini
+        image = Image.open(image_path)
+            
+        # Analyze frame for software
+        analysis = analyze_frame_for_software(
+            frame,
+            software_list,
+            logo_db_path,
+            ocr_lang,
+            logo_threshold
+        )
+        
+        # Get Gemini analysis if API key is configured
+        gemini_analysis = ""
+        if os.getenv("GEMINI_API_KEY"):
+            # Initialize Gemini model
+            model = genai.GenerativeModel("gemini-2.0-flash-exp")
+            
+            # Build software detection context
+            software_context = ""
+            if software_list:
+                software_context = (
+                    f"\n\nDetected software applications:\n"
+                    f"Software list: {', '.join(software_list)}\n"
+                )
+                
+                if analysis['ocr_matches']:
+                    software_context += "\nText detected: " + ", ".join(
+                        f"{m['software']} ({m['detected_text']})" for m in analysis['ocr_matches']
+                    )
+                if analysis['logo_matches']:
+                    software_context += "\nLogos detected: " + ", ".join(
+                        f"{m['software']} (confidence: {m['confidence']:.2f})" for m in analysis['logo_matches']
+                    )
+            
+            # Generate prompt for screenshot analysis
+            prompt = (
+                f"Analyze this screenshot and describe what you see.{software_context}\n\n"
+                "Focus on identifying software applications, user interfaces, and any notable visual elements. "
+                "Be specific about what is visible in the image."
+            )
+            
+            # Add user-provided context if available
+            if context:
+                prompt = f"{context}\n\n{prompt}"
+            
+            # Generate content
+            response = model.generate_content([prompt, image])
+            gemini_analysis = response.text
+        
+        # Prepare results
+        results = {
+            'gemini_analysis': gemini_analysis,
+            'software_detections': [{
+                'source': 'screenshot',
+                **analysis
+            }] if (analysis['ocr_matches'] or analysis['logo_matches']) else []
+        }
+        
+        # Save results
+        results_path = os.path.join(project_path, "results.json")
+        with open(results_path, "w") as f:
+            json.dump(results, f, indent=2)
+            
+        # Save checkpoints in sequence
+        save_checkpoint(project_path, CHECKPOINTS['SCREENSHOT_ANALYZED'], {
+            'results': results
+        })
+        save_checkpoint(project_path, CHECKPOINTS['PROCESS_COMPLETE'], {
+            'results': results
+        })
+        
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error analyzing screenshot: {str(e)}")
+        return {
+            'gemini_analysis': f"Analysis failed: {str(e)}",
+            'software_detections': []
+        }
 
 def analyze_frame_for_software(frame, software_list=None, logo_db_path=None, ocr_lang="eng", logo_threshold=0.8):
     """Analyze a single frame for software applications using OCR and logo detection."""
