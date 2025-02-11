@@ -10,7 +10,17 @@ from pydub import AudioSegment
 
 
 def convert_to_mono_and_resample(input_file, output_file, sample_rate=16000):
-    """Converts audio to mono, resamples, applies gain control, and a high-pass filter."""
+    """Converts audio to mono, resamples, applies gain control, and a high-pass filter.
+
+    Args:
+        input_file (str): Path to the input audio file.
+        output_file (str): Path to save the processed audio file.
+        sample_rate (int, optional): Target sample rate. Defaults to 16000.
+
+    Returns:
+        dict: A dictionary containing the status and a message.
+            The status can be "success" or "error".
+    """
     try:
         command = [
             "ffmpeg",
@@ -41,7 +51,18 @@ def convert_to_mono_and_resample(input_file, output_file, sample_rate=16000):
 
 
 def normalize_audio(input_file, output_file, lowpass_freq=6000, highpass_freq=100):
-    """Normalizes audio using ffmpeg-normalize."""
+    """Normalizes audio using ffmpeg-normalize.
+
+    Args:
+        input_file (str): Path to the input audio file.
+        output_file (str): Path to save the normalized audio file.
+        lowpass_freq (int, optional): Lowpass filter frequency. Defaults to 6000.
+        highpass_freq (int, optional): Highpass filter frequency. Defaults to 100.
+
+    Returns:
+        dict: A dictionary containing the status and a message.
+            The status can be "success" or "error".
+    """
     try:
         command = [
             "ffmpeg-normalize",
@@ -78,7 +99,18 @@ def normalize_audio(input_file, output_file, lowpass_freq=6000, highpass_freq=10
 
 
 def remove_silence(input_file, output_file, duration="1.5", threshold="-20"):
-    """Removes silence from audio using unsilence."""
+    """Removes silence from audio using unsilence.
+
+    Args:
+        input_file (str): Path to the input audio file.
+        output_file (str): Path to save the processed audio file.
+        duration (str, optional): Minimum silence duration in seconds. Defaults to "1.5".
+        threshold (str, optional): Silence threshold in dB. Defaults to "-20".
+
+    Returns:
+        dict: A dictionary containing the status and a message.
+            The status can be "success" or "error".
+    """
     try:
         command = [
             "unsilence",
@@ -103,7 +135,15 @@ def remove_silence(input_file, output_file, duration="1.5", threshold="-20"):
 
 
 def extract_audio(video_path, output_path):
-    """Extract audio from video file."""
+    """Extract audio from video file.
+
+    Args:
+        video_path (str): Path to the video file.
+        output_path (str): Path to save the extracted audio file.
+
+    Raises:
+        Exception: If audio extraction fails.
+    """
     print("Extracting audio from video...")
     try:
         audio = AudioSegment.from_file(video_path)

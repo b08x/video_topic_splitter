@@ -13,10 +13,19 @@ logger = logging.getLogger(__name__)
 
 
 class LogoDetector:
-    """Class for managing and performing logo detection."""
+    """Class for managing and performing logo detection.
+
+    Attributes:
+        logo_db_path (str): Path to the directory containing the logo database.
+        logos (dict): A dictionary storing loaded logo data.  Keys are software names, values are dictionaries containing paths and templates.
+    """
 
     def __init__(self, logo_db_path=None):
-        """Initialize the logo detector with a database of reference logos."""
+        """Initialize the logo detector with a database of reference logos.
+
+        Args:
+            logo_db_path (str, optional): Path to the logo database. If None, defaults to a subdirectory within the module. Defaults to None.
+        """
         self.logo_db_path = logo_db_path or os.path.join(
             os.path.dirname(__file__), "data", "logos"
         )
@@ -24,7 +33,10 @@ class LogoDetector:
         self.load_logo_database()
 
     def load_logo_database(self):
-        """Load reference logos from the database directory."""
+        """Load reference logos from the database directory.
+
+        Loads logo images and metadata (if available) from the specified database path.  Handles potential errors during loading.
+        """
         try:
             if not os.path.exists(self.logo_db_path):
                 os.makedirs(self.logo_db_path)
@@ -49,7 +61,15 @@ class LogoDetector:
             self.logos = {}
 
     def add_logo(self, software_name, logo_image):
-        """Add a new logo to the database."""
+        """Add a new logo to the database.
+
+        Args:
+            software_name (str): Name of the software application.
+            logo_image (numpy.ndarray): The logo image as a NumPy array.
+
+        Returns:
+            bool: True if the logo was added successfully, False otherwise.
+        """
         try:
             # Ensure the logo directory exists
             os.makedirs(self.logo_db_path, exist_ok=True)
@@ -70,7 +90,10 @@ class LogoDetector:
             return False
 
     def _save_metadata(self):
-        """Save logo database metadata."""
+        """Save logo database metadata.
+
+        Saves a JSON file containing paths to the logo images.  Handles potential errors during saving.
+        """
         try:
             metadata = {
                 name: {"path": info["path"]} for name, info in self.logos.items()
@@ -82,7 +105,15 @@ class LogoDetector:
             logger.error(f"Error saving metadata: {str(e)}")
 
     def detect_logos(self, frame, threshold=0.8):
-        """Detect software logos in a video frame."""
+        """Detect software logos in a video frame.
+
+        Args:
+            frame (numpy.ndarray): The video frame to analyze.
+            threshold (float, optional): Confidence threshold for logo detection (0.0-1.0). Defaults to 0.8.
+
+        Returns:
+            list: A list of dictionaries, where each dictionary represents a detected logo with its software name, confidence, and location. Returns an empty list if no logos are detected or if errors occur.
+        """
         results = []
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
@@ -122,10 +153,13 @@ def detect_software_logos(frame, software_list, logo_db_path=None, threshold=0.8
     """Convenience function to detect software logos in a frame.
 
     Args:
-        frame: Video frame to analyze
-        software_list: List of software names to detect
-        logo_db_path: Optional path to logo database
-        threshold: Confidence threshold for logo detection (0.0-1.0, default: 0.8)
+        frame (numpy.ndarray): The video frame to analyze.
+        software_list (list): A list of software names to detect (currently unused).
+        logo_db_path (str, optional): Optional path to logo database. Defaults to None.
+        threshold (float, optional): Confidence threshold for logo detection (0.0-1.0). Defaults to 0.8.
+
+    Returns:
+        list: A list of dictionaries containing information about detected logos.
     """
     detector = LogoDetector(logo_db_path)
     return detector.detect_logos(frame, threshold=threshold)

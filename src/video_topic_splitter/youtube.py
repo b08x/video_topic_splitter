@@ -28,12 +28,26 @@ THUMBNAIL_QUALITIES = [
 
 
 def is_youtube_url(url: str) -> bool:
-    """Check if the given URL is a valid YouTube video URL."""
+    """Check if the given URL is a valid YouTube video URL.
+
+    Args:
+        url (str): The URL to check.
+
+    Returns:
+        bool: True if the URL is a valid YouTube video URL, False otherwise.
+    """
     return bool(re.match(YOUTUBE_URL_PATTERN, url))
 
 
 def get_video_info(url: str) -> Optional[Dict]:
-    """Get video information without downloading."""
+    """Get video information from a YouTube URL without downloading the video.
+
+    Args:
+        url (str): The YouTube video URL.
+
+    Returns:
+        Optional[Dict]: A dictionary containing video information if successful, None otherwise.  Includes error handling for invalid URLs and API failures.
+    """
     if not is_youtube_url(url):
         return None
 
@@ -53,11 +67,18 @@ def get_video_info(url: str) -> Optional[Dict]:
 
 
 def get_best_thumbnail_url(video_info: Dict) -> Optional[str]:
-    """Get the best quality thumbnail URL available."""
+    """Get the highest quality thumbnail URL available for a given video.
+
+    Args:
+        video_info (Dict): A dictionary containing video information (as returned by get_video_info).
+
+    Returns:
+        Optional[str]: The URL of the best quality thumbnail, or None if no thumbnail is found.  Handles potential network errors.
+    """
     if not video_info:
         return None
 
-    # Try each quality option
+    # Try each quality option in descending order of preference
     for quality in THUMBNAIL_QUALITIES:
         url = f"https://img.youtube.com/vi/{video_info['id']}/{quality}.jpg"
         try:
@@ -72,27 +93,27 @@ def get_best_thumbnail_url(video_info: Dict) -> Optional[str]:
     return None
 
 
-def download_video(url: str, output_path: str, project_path: str = None) -> dict:
-    """Download YouTube video using yt-dlp.
+def download_video(url: str, output_path: str, project_path: str = None) -> Dict:
+    """Download a YouTube video using yt-dlp and optionally save a thumbnail.
 
     Args:
-        url: YouTube video URL
-        output_path: Path where the video should be saved
-        project_path: Optional project path for saving thumbnails
+        url (str): The YouTube video URL.
+        output_path (str): The path to save the downloaded video file.
+        project_path (str, optional): Optional project path for saving thumbnails. Defaults to None.
 
     Returns:
-        dict: Status and message about the download
+        Dict: A dictionary containing the status and message of the download operation.  Includes video information and thumbnail information if successful.  Provides detailed error messages.
     """
     if not is_youtube_url(url):
         return {"status": "error", "message": "Invalid YouTube URL"}
 
     try:
-        # First get video info and thumbnail
+        # Get video info and thumbnail URL
         video_info = get_video_info(url)
         if not video_info:
             return {"status": "error", "message": "Failed to get video information"}
 
-        # Download thumbnail if project path is provided
+        # Save thumbnail if project path is given
         thumbnail_info = None
         if project_path:
             thumbnail_url = get_best_thumbnail_url(video_info)
@@ -100,7 +121,7 @@ def download_video(url: str, output_path: str, project_path: str = None) -> dict
                 thumbnail_manager = ThumbnailManager(project_path)
                 thumbnail_info = thumbnail_manager.save_youtube_thumbnail(thumbnail_url)
 
-        # Download video
+        # Download video using yt-dlp with specified format options
         ydl_opts = {
             "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]",
             "outtmpl": output_path,
@@ -116,6 +137,7 @@ def download_video(url: str, output_path: str, project_path: str = None) -> dict
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
+        # Check if download was successful and return results
         if os.path.exists(output_path):
             result = {
                 "status": "success",
