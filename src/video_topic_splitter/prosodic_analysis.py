@@ -5,7 +5,7 @@ import os
 import json
 import numpy as np
 import essentia.standard as es
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import logging
 
 from .constants import CHECKPOINTS
@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 class ProsodyAnalyzer:
     """Handles extraction and analysis of prosodic features from audio."""
     
+    # Class-level algorithm instances to prevent "No network created" warning
+    pitch_extractor = es.PitchMelodia()
+    loudness_extractor = es.Loudness()
+    rhythm_extractor = es.RhythmExtractor2013()
+    
     def __init__(self, sample_rate: int = 44100):
         """Initialize the prosody analyzer.
         
@@ -23,28 +28,25 @@ class ProsodyAnalyzer:
             sample_rate: Audio sample rate (default: 44100 Hz)
         """
         self.sample_rate = sample_rate
-        self._init_extractors()
+        self._configure_extractors()
     
-    def _init_extractors(self):
-        """Initialize Essentia feature extractors."""
+    def _configure_extractors(self):
+        """Configure Essentia feature extractors."""
         try:
-            # Pitch extractor
-            self.pitch_extractor = es.PitchMelodia(
+            # Configure pitch extractor
+            self.pitch_extractor.configure(
                 sampleRate=self.sample_rate,
                 hopSize=128,
                 frameSize=2048
             )
             
-            # Loudness extractor
-            self.loudness_extractor = es.Loudness()
-            
-            # Rhythm extractor
-            self.rhythm_extractor = es.RhythmExtractor2013(
+            # Configure rhythm extractor
+            self.rhythm_extractor.configure(
                 method="multifeature"
             )
             
         except Exception as e:
-            logger.error(f"Failed to initialize Essentia extractors: {str(e)}")
+            logger.error(f"Failed to configure Essentia extractors: {str(e)}")
             raise
     
     def extract_prosodic_features(self, audio_path: str) -> Dict:
@@ -97,6 +99,39 @@ class ProsodyAnalyzer:
             logger.error(f"Error extracting prosodic features: {str(e)}")
             raise
     
+    def _get_timestamps(self, segment: Dict) -> Tuple[float, float]:
+        """Extract start and end timestamps from segment, handling different key names.
+        
+        Args:
+            segment: Transcript segment dictionary
+            
+        Returns:
+            Tuple of (start_time, end_time)
+            
+        Raises:
+            ValueError: If timestamps are missing or invalid
+        """
+        start = segment.get('start_time')
+        if start is None:
+            start = segment.get('start')
+        
+        end = segment.get('end_time')
+        if end is None:
+            end = segment.get('end')
+            
+        if start is None or end is None:
+            raise ValueError(
+                f"Transcript segment missing timestamps. Required: 'start_time'/'start' "
+                f"and 'end_time'/'end'. Found keys: {list(segment.keys())}"
+            )
+            
+        try:
+            return float(start), float(end)
+        except (TypeError, ValueError) as e:
+            raise ValueError(
+                f"Invalid timestamp values. Expected floats, got start={start}, end={end}"
+            ) from e
+    
     def align_features_with_transcript(self, 
                                      features: Dict, 
                                      transcript: List[Dict]) -> List[Dict]:
@@ -113,8 +148,8 @@ class ProsodyAnalyzer:
         
         try:
             for segment in transcript:
-                start_time = segment['start_time']
-                end_time = segment['end_time']
+                # Get normalized timestamps
+                start_time, end_time = self._get_timestamps(segment)
                 
                 # Get pitch features within segment timeframe
                 pitch_indices = [

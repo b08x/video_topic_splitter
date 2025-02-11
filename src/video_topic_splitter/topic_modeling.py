@@ -79,7 +79,7 @@ class TopicAnalyzer:
         return None  # Cache miss by default, actual caching handled by lru_cache decorator
 
     async def analyze_segment_async(self, current_segment: Dict, previous_segment: Optional[Dict] = None) -> Dict:
-        """Analyze a segment considering previous context asynchronously."""
+        """Analyze a segment considering previous context and prosodic features asynchronously."""
         async with self.semaphore:  # Limit concurrent API calls
             # Check cache first
             cache_key = current_segment['content']
@@ -92,9 +92,26 @@ class TopicAnalyzer:
             if previous_segment:
                 context = (f"Previous segment context:\n"
                           f"Content: {previous_segment['content']}\n"
-                          f"Topic: {previous_segment.get('topic', 'Unknown')}\n\n")
+                          f"Topic: {previous_segment.get('topic', 'Unknown')}\n")
+                
+                # Add prosodic context if available
+                if 'prosodic_features' in previous_segment:
+                    pf = previous_segment['prosodic_features']
+                    context += (f"Previous prosodic features:\n"
+                              f"Pitch mean: {pf['pitch']['mean']}\n"
+                              f"Loudness mean: {pf['loudness']['mean']}\n"
+                              f"Rhythm BPM: {pf['rhythm']['bpm']}\n\n")
             
             context += f"Analyze the following segment:\n{current_segment['content']}"
+            
+            # Add current prosodic features if available
+            if 'prosodic_features' in current_segment:
+                pf = current_segment['prosodic_features']
+                context += (f"\n\nProsodic features:\n"
+                          f"Pitch mean: {pf['pitch']['mean']}\n"
+                          f"Loudness mean: {pf['loudness']['mean']}\n"
+                          f"Rhythm BPM: {pf['rhythm']['bpm']}")
+            
             prompt = get_topic_prompt(self.register, context)
 
             for attempt in range(self.max_retries):
@@ -160,6 +177,23 @@ class TopicAnalyzer:
         
         return float(similarity)
 
+    def _calculate_prosodic_similarity(self, segment1: Dict, segment2: Dict) -> Optional[float]:
+        """Calculate similarity between prosodic features of two segments."""
+        if not ('prosodic_features' in segment1 and 'prosodic_features' in segment2):
+            return None
+            
+        pf1 = segment1['prosodic_features']
+        pf2 = segment2['prosodic_features']
+        
+        # Calculate normalized differences for each feature
+        pitch_diff = abs(pf1['pitch']['mean'] - pf2['pitch']['mean']) / max(pf1['pitch']['mean'], pf2['pitch']['mean'])
+        loudness_diff = abs(pf1['loudness']['mean'] - pf2['loudness']['mean']) / max(pf1['loudness']['mean'], pf2['loudness']['mean'])
+        rhythm_diff = abs(pf1['rhythm']['bpm'] - pf2['rhythm']['bpm']) / max(pf1['rhythm']['bpm'], pf2['rhythm']['bpm'])
+        
+        # Average the differences and convert to similarity score
+        similarity = 1 - ((pitch_diff + loudness_diff + rhythm_diff) / 3)
+        return float(similarity)
+
     def _create_batches(self, transcript: List[Dict]) -> List[List[Dict]]:
         """Create batches of sentences for analysis with smart boundary detection."""
         batches = []
@@ -173,7 +207,18 @@ class TopicAnalyzer:
                 if i + 1 < len(transcript):
                     current_text = " ".join(s["content"] for s in current_batch)
                     next_text = transcript[i + 1]["content"]
-                    similarity = self._calculate_similarity(current_text, next_text)
+                    text_similarity = self._calculate_similarity(current_text, next_text)
+                    
+                    # Calculate prosodic similarity if available
+                    prosodic_similarity = self._calculate_prosodic_similarity(
+                        current_batch[-1], transcript[i + 1]
+                    )
+                    
+                    # Combine text and prosodic similarity if both available
+                    if prosodic_similarity is not None:
+                        similarity = (text_similarity + prosodic_similarity) / 2
+                    else:
+                        similarity = text_similarity
                     
                     # If similarity is low, this might be a natural boundary
                     if similarity < self.similarity_threshold:
@@ -192,11 +237,25 @@ class TopicAnalyzer:
 
     def _combine_batch(self, batch: List[Dict]) -> Dict:
         """Combine a batch of sentences into a single segment."""
-        return {
+        combined = {
             "start": batch[0]["start"],
             "end": batch[-1]["end"],
             "content": " ".join(s["content"] for s in batch)
         }
+        
+        # Combine prosodic features if available
+        if all('prosodic_features' in s for s in batch):
+            pitch_means = [s['prosodic_features']['pitch']['mean'] for s in batch]
+            loudness_means = [s['prosodic_features']['loudness']['mean'] for s in batch]
+            bpms = [s['prosodic_features']['rhythm']['bpm'] for s in batch]
+            
+            combined['prosodic_features'] = {
+                'pitch': {'mean': np.mean(pitch_means)},
+                'loudness': {'mean': np.mean(loudness_means)},
+                'rhythm': {'bpm': np.mean(bpms)}
+            }
+            
+        return combined
 
     async def _analyze_batch(self, batch: Dict, previous_batch: Optional[Dict] = None) -> Dict:
         """Analyze a batch of sentences."""
@@ -230,7 +289,7 @@ class TopicAnalyzer:
 
     def identify_segments(self, transcript: List[Dict]) -> List[Dict]:
         """Identify segments based on topic analysis using batched and parallel processing."""
-        print("Identifying segments based on topics...")
+        print("Identifying segments based on topics and prosodic features...")
         
         # Create batches of sentences with smart boundary detection
         print("Creating smart batches...")
@@ -251,9 +310,20 @@ class TopicAnalyzer:
                 current_segment["topic"] = analysis["topic"]
                 current_segment["keywords"] = analysis["keywords"]
             else:
+                # Calculate prosodic change if features available
+                prosodic_change = False
+                if ('prosodic_features' in current_segment and 
+                    'prosodic_features' in batch[0]):
+                    similarity = self._calculate_prosodic_similarity(
+                        current_segment, batch[0]
+                    )
+                    if similarity is not None and similarity < self.similarity_threshold:
+                        prosodic_change = True
+                
                 # Decide whether to start a new segment
-                if (analysis["relationship"] == "NEW" and analysis["confidence"] > 70) or \
-                   (analysis["relationship"] == "SHIFT" and analysis["confidence"] > 85):
+                if ((analysis["relationship"] == "NEW" and analysis["confidence"] > 70) or
+                    (analysis["relationship"] == "SHIFT" and analysis["confidence"] > 85) or
+                    prosodic_change):
                     # Finalize current segment
                     segments.append(current_segment)
                     
@@ -266,6 +336,23 @@ class TopicAnalyzer:
                     # Continue current segment
                     current_segment["end"] = batch[-1]["end"]
                     current_segment["content"] += " " + " ".join(s["content"] for s in batch)
+                    
+                    # Update prosodic features if available
+                    if ('prosodic_features' in current_segment and 
+                        'prosodic_features' in batch[-1]):
+                        current_pf = current_segment['prosodic_features']
+                        batch_pf = batch[-1]['prosodic_features']
+                        current_segment['prosodic_features'] = {
+                            'pitch': {
+                                'mean': (current_pf['pitch']['mean'] + batch_pf['pitch']['mean']) / 2
+                            },
+                            'loudness': {
+                                'mean': (current_pf['loudness']['mean'] + batch_pf['loudness']['mean']) / 2
+                            },
+                            'rhythm': {
+                                'bpm': (current_pf['rhythm']['bpm'] + batch_pf['rhythm']['bpm']) / 2
+                            }
+                        }
         
         # Handle last segment
         if current_segment:
@@ -293,6 +380,11 @@ def process_transcript(transcript: List[Dict], project_path: str, num_topics: in
             "top_keywords": segment["keywords"],
             "transcript": segment["content"],
         }
+        
+        # Include prosodic features if available
+        if 'prosodic_features' in segment:
+            segment_metadata['prosodic_features'] = segment['prosodic_features']
+            
         metadata.append(segment_metadata)
 
     # Create results structure

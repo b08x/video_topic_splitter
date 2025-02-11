@@ -23,6 +23,7 @@ from .transcription import (
     save_transcription,
     save_transcript
 )
+from .prosodic_analysis import ProsodyAnalyzer
 from .topic_modeling import process_transcript
 from .video_analysis import split_and_analyze_video
 from .prompt_templates import get_topic_prompt, get_analysis_prompt
@@ -104,6 +105,44 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
 
     return unsilenced_video_path, mono_resampled_audio_path
 
+def process_prosodic_features(audio_path: str, transcript: list, project_path: str) -> dict:
+    """Extract and align prosodic features with transcript."""
+    try:
+        prosody_analyzer = ProsodyAnalyzer()
+        
+        # Extract prosodic features
+        features = prosody_analyzer.extract_prosodic_features(audio_path)
+        
+        # Save raw features
+        features_path = os.path.join(project_path, "prosodic_features.json")
+        with open(features_path, 'w') as f:
+            json.dump(features, f, indent=2)
+            
+        save_checkpoint(project_path, CHECKPOINTS['PROSODIC_FEATURES_EXTRACTED'], {
+            'features_path': features_path
+        })
+        
+        # Align features with transcript
+        aligned_segments = prosody_analyzer.align_features_with_transcript(features, transcript)
+        
+        # Save aligned features
+        aligned_path = os.path.join(project_path, "aligned_features.json")
+        with open(aligned_path, 'w') as f:
+            json.dump(aligned_segments, f, indent=2)
+            
+        save_checkpoint(project_path, CHECKPOINTS['FEATURES_ALIGNED'], {
+            'aligned_path': aligned_path
+        })
+        
+        return {
+            'features': features,
+            'aligned_segments': aligned_segments
+        }
+        
+    except Exception as e:
+        print(f"Error processing prosodic features: {str(e)}")
+        raise
+
 def handle_transcription(video_path, audio_path, project_path, api="deepgram", num_topics=2, 
                        groq_prompt=None, software_list=None, logo_db_path=None, 
                        ocr_lang="eng", logo_threshold=0.8, thumbnail_interval=5,
@@ -172,7 +211,21 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
         'transcript': transcript
     })
 
+    # Process prosodic features before topic modeling
+    try:
+        prosodic_results = process_prosodic_features(audio_path, transcript, project_path)
+        # Add prosodic features to transcript segments
+        for i, segment in enumerate(transcript):
+            if i < len(prosodic_results['aligned_segments']):
+                segment['prosodic_features'] = prosodic_results['aligned_segments'][i]['prosodic_features']
+    except Exception as e:
+        print(f"Warning: Prosodic feature extraction failed: {str(e)}")
+        prosodic_results = None
+
+    # Process transcript with prosodic features
     results = process_transcript(transcript, project_path, num_topics, register=register)
+    if prosodic_results:
+        results['prosodic_features'] = prosodic_results['features']
 
     # Split the video and analyze segments
     try:
