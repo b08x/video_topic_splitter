@@ -1,5 +1,6 @@
 # Core dependencies
 python-dotenv>=1.0.0
+essentia>=2.1b5.dev416
 moviepy>=1.0.3
 progressbar2>=4.2.0
 yt-dlp>=2023.12.30

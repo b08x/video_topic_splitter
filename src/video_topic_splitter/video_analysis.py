@@ -19,6 +19,7 @@ from .thumbnail_utils import ThumbnailManager
 from .prompt_templates import get_analysis_prompt
 from .constants import CHECKPOINTS
 from .project import save_checkpoint
+from .prosodic_analysis import ProsodyAnalyzer
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -213,7 +214,7 @@ def analyze_thumbnails(thumbnails, software_list=None, logo_db_path=None, ocr_la
 
 def analyze_segment_with_gemini(segment_path, transcript, software_list=None, logo_db_path=None, 
                               ocr_lang="eng", logo_threshold=0.8, min_thumbnail_confidence=0.7,
-                              register="it-workflow"):
+                              register="it-workflow", include_prosody=True):
     """Analyze a video segment using Google's Gemini model and software detection."""
     print(f"Analyzing segment: {segment_path}")
     
@@ -224,6 +225,15 @@ def analyze_segment_with_gemini(segment_path, transcript, software_list=None, lo
     try:
         # Load the video segment
         video = VideoFileClip(segment_path)
+        
+        # Extract prosodic features if requested
+        prosodic_features = None
+        if include_prosody:
+            try:
+                prosody_analyzer = ProsodyAnalyzer()
+                prosodic_features = prosody_analyzer.extract_prosodic_features(segment_path)
+            except Exception as e:
+                logger.error(f"Error extracting prosodic features: {str(e)}")
         
         # Initialize ThumbnailManager
         thumbnail_manager = ThumbnailManager(os.path.dirname(segment_path))
@@ -306,10 +316,15 @@ def analyze_segment_with_gemini(segment_path, transcript, software_list=None, lo
         # Generate content
         response = model.generate_content([prompt, image])
         
-        return {
+        result = {
             'gemini_analysis': response.text,
             'software_detections': software_detections
         }
+        
+        if prosodic_features:
+            result['prosodic_features'] = prosodic_features
+            
+        return result
     except Exception as e:
         print(f"Error analyzing segment with Gemini: {str(e)}")
         return {
@@ -320,12 +335,21 @@ def analyze_segment_with_gemini(segment_path, transcript, software_list=None, lo
 def split_and_analyze_video(input_video, segments, output_dir, software_list=None, 
                           logo_db_path=None, ocr_lang="eng", logo_threshold=0.8,
                           thumbnail_interval=5, max_thumbnails=5, min_thumbnail_confidence=0.7,
-                          register="it-workflow"):
+                          register="it-workflow", include_prosody=True):
     """Split video into segments and analyze each segment with checkpoint support."""
     print("Splitting video into segments and analyzing...")
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
+    
+    # Initialize prosody analyzer if needed
+    prosody_analyzer = None
+    if include_prosody:
+        try:
+            prosody_analyzer = ProsodyAnalyzer()
+        except Exception as e:
+            logger.error(f"Failed to initialize prosody analyzer: {str(e)}")
+            include_prosody = False
     
     # Load any previously analyzed segments
     analyzed_segments = load_analyzed_segments(output_dir)
@@ -361,7 +385,7 @@ def split_and_analyze_video(input_video, segments, output_dir, software_list=Non
                         logger=None
                     )
                 
-                # Analyze the segment with software detection
+                # Analyze the segment with software detection and prosody
                 analysis_results = analyze_segment_with_gemini(
                     output_path,
                     segment["transcript"],
@@ -370,10 +394,23 @@ def split_and_analyze_video(input_video, segments, output_dir, software_list=Non
                     ocr_lang,
                     logo_threshold,
                     min_thumbnail_confidence,
-                    register
+                    register,
+                    include_prosody
                 )
                 
-                # Create the analysis result with software information
+                # Process prosodic features if available
+                if include_prosody and prosody_analyzer:
+                    try:
+                        aligned_features = prosody_analyzer.align_features_with_transcript(
+                            analysis_results.get('prosodic_features', {}),
+                            [segment]
+                        )
+                        if aligned_features:
+                            analysis_results['aligned_prosodic_features'] = aligned_features[0]
+                    except Exception as e:
+                        logger.error(f"Error aligning prosodic features: {str(e)}")
+                
+                # Create the analysis result with software and prosodic information
                 analysis_result = {
                     "segment_id": segment_id,
                     "start_time": segment["start_time"],
@@ -382,9 +419,13 @@ def split_and_analyze_video(input_video, segments, output_dir, software_list=Non
                     "topic": segment["dominant_topic"],
                     "keywords": segment["top_keywords"],
                     "gemini_analysis": analysis_results['gemini_analysis'],
-                    "software_detected": bool(software_list),  # Indicates if software detection was performed
+                    "software_detected": bool(software_list),
                     "software_detections": analysis_results['software_detections']
                 }
+                
+                # Add prosodic features if available
+                if 'aligned_prosodic_features' in analysis_results:
+                    analysis_result['prosodic_features'] = analysis_results['aligned_prosodic_features']
                 
                 # Add to our results and save immediately
                 analyzed_segments.append(analysis_result)
