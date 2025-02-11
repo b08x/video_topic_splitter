@@ -214,7 +214,7 @@ def analyze_thumbnails(thumbnails, software_list=None, logo_db_path=None, ocr_la
 
 def analyze_segment_with_gemini(segment_path, transcript, software_list=None, logo_db_path=None, 
                               ocr_lang="eng", logo_threshold=0.8, min_thumbnail_confidence=0.7,
-                              register="it-workflow", include_prosody=True):
+                              register="gen-ai", include_prosody=True):
     """Analyze a video segment using Google's Gemini model and software detection."""
     print(f"Analyzing segment: {segment_path}")
     
@@ -335,7 +335,7 @@ def analyze_segment_with_gemini(segment_path, transcript, software_list=None, lo
 def split_and_analyze_video(input_video, segments, output_dir, software_list=None, 
                           logo_db_path=None, ocr_lang="eng", logo_threshold=0.8,
                           thumbnail_interval=5, max_thumbnails=5, min_thumbnail_confidence=0.7,
-                          register="it-workflow", include_prosody=True):
+                          register="gen-ai", include_prosody=True):
     """Split video into segments and analyze each segment with checkpoint support."""
     print("Splitting video into segments and analyzing...")
     

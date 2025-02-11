@@ -146,7 +146,7 @@ def process_prosodic_features(audio_path: str, transcript: list, project_path: s
 def handle_transcription(video_path, audio_path, project_path, api="deepgram", num_topics=2, 
                        groq_prompt=None, software_list=None, logo_db_path=None, 
                        ocr_lang="eng", logo_threshold=0.8, thumbnail_interval=5,
-                       max_thumbnails=5, min_thumbnail_confidence=0.7, register="it-workflow"):
+                       max_thumbnails=5, min_thumbnail_confidence=0.7, register="gen-ai"):
     """Handle transcription of video/audio content."""
     segments_dir = os.path.join(project_path, "segments")
     os.makedirs(segments_dir, exist_ok=True)
@@ -277,8 +277,8 @@ def handle_transcription(video_path, audio_path, project_path, api="deepgram", n
 def process_video(video_path, project_path, api="deepgram", num_topics=2, groq_prompt=None, 
                  skip_unsilence=False, transcribe_only=False, is_youtube_url=False, 
                  software_list=None, logo_db_path=None, ocr_lang="eng", logo_threshold=0.8,
-                 thumbnail_interval=5, max_thumbnails=5, min_thumbnail_confidence=0.7,
-                 register="it-workflow"):
+                 thumbnail_interval=5, max_thumbnails=10, min_thumbnail_confidence=0.7,
+                 register="gen-ai"):
     """Main video processing pipeline."""
     from .project import load_checkpoint
     

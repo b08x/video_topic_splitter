@@ -35,7 +35,7 @@ class TopicAnalyzer:
     
     def __init__(self, max_retries: int = 3, retry_delay: int = 5, 
                  batch_size: int = 5, max_concurrent: int = 3,
-                 similarity_threshold: float = 0.7, register: str = "it-workflow"):
+                 similarity_threshold: float = 0.7, register: str = "gen-ai"):
         """Initialize the TopicAnalyzer.
         
         Args:
@@ -361,7 +361,7 @@ class TopicAnalyzer:
         print(f"Identified {len(segments)} segments.")
         return segments
 
-def process_transcript(transcript: List[Dict], project_path: str, num_topics: int = 5, register: str = "it-workflow") -> Dict:
+def process_transcript(transcript: List[Dict], project_path: str, num_topics: int = 5, register: str = "gen-ai") -> Dict:
     """Process transcript for topic modeling and segmentation."""
     analyzer = TopicAnalyzer(register=register)
     

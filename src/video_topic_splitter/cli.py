@@ -76,7 +76,7 @@ def main() -> None:
     parser.add_argument(
         "--register",
         choices=["it-workflow", "gen-ai", "tech-support"],
-        default="it-workflow",
+        default="gen-ai",
         help="Analysis register: it-workflow, gen-ai, or tech-support"
     )
     parser.add_argument(
