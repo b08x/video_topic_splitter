@@ -3,7 +3,8 @@
 **/__pycache__/
 build/**/
 .env
-video_topic_splitter.json
 *.wav
 list.txt
 software.list
+video_topic_splitter.json
+todo.md
