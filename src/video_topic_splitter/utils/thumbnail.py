@@ -58,8 +58,20 @@ class ThumbnailManager:
         """Generate thumbnails from a video file at specified intervals."""
         try:
             video = VideoFileClip(video_path)
-            if fps is None:
-                fps = video.fps  # Get video's FPS if not provided
+            try:
+                if fps is None:
+                    fps = video.fps  # Get video's FPS if not provided
+                if fps is None or fps <= 0:
+                    fps = 24  # Default to 24 fps if invalid
+                    logger.info("Using default FPS: 24")
+                else:
+                    logger.info(f"Using FPS: {fps}")
+            except Exception as e:
+                logger.warning(
+                    f"Error detecting video FPS: {str(e)}, using default of 24"
+                )
+                fps = 24
+
             duration = video.duration
 
             # Calculate number of thumbnails based on interval and max_thumbnails

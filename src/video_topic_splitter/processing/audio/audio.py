@@ -58,7 +58,7 @@ def convert_to_mono_and_resample(input_file, output_file, sample_rate=16000):
 
 def normalize_audio(input_file, output_file, lowpass_freq=6000, highpass_freq=100):
     """Normalizes audio using ffmpeg-normalize, then re-encodes to AAC."""
-    temp_normalized_file = output_file + ".wav"  # Temporary WAV file
+    output_ext = os.path.splitext(output_file)[1].lower()
 
     try:
         command = [
@@ -77,51 +77,48 @@ def normalize_audio(input_file, output_file, lowpass_freq=6000, highpass_freq=10
             f"lowpass=f={lowpass_freq}",
             "-ar",
             "48000",
-            "-c:a",
-            "pcm_s16le",  # Keep this for ffmpeg-normalize; it's good at this.
-            "--keep-loudness-range-target",
-            "-o",
-            temp_normalized_file,
         ]
+
+        # Add codec settings based on output format
+        if output_ext in [".mp4", ".m4a"]:
+            command.extend(
+                [
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "128k",
+                ]
+            )
+        else:
+            command.extend(
+                [
+                    "-c:a",
+                    "pcm_s16le",
+                ]
+            )
+
+        command.extend(
+            [
+                "--keep-loudness-range-target",
+                "-o",
+                output_file,
+            ]
+        )
         result = subprocess.run(command, check=True, capture_output=True, text=True)
-        logging.info(f"Audio normalized and saved to {temp_normalized_file}")
-
-        # Re-encode to AAC using ffmpeg
-        aac_command = [
-            "ffmpeg",
-            "-i",
-            temp_normalized_file,
-            "-acodec",
-            "aac",
-            "-b:a",
-            "128k",
-            output_file,
-        ]
-        result = subprocess.run(aac_command, check=True, capture_output=True, text=True)
-        logging.info(f"Audio re-encoded to AAC and saved to {output_file}")
-
-        # Clean up the temporary WAV file
-        os.remove(temp_normalized_file)
-
+        logging.info(f"Audio normalized and saved to {output_file}")
         return {"status": "success", "message": result.stdout}
     except subprocess.CalledProcessError as e:
-        logging.error(f"Error during audio normalization or re-encoding: {e.stderr}")
-        if os.path.exists(temp_normalized_file):
-            os.remove(temp_normalized_file)
+        logging.error(f"Error during audio normalization: {e.stderr}")
         return {"status": "error", "message": e.stderr}
     except FileNotFoundError:
         logging.critical(
-            f"ffmpeg-normalize or ffmpeg not found. Please ensure they are installed and in your PATH."
+            f"ffmpeg-normalize not found. Please ensure it is installed and in your PATH."
         )
-        if os.path.exists(temp_normalized_file):
-            os.remove(temp_normalized_file)
-        return {"status": "error", "message": "ffmpeg-normalize or ffmpeg not found"}
+        return {"status": "error", "message": "ffmpeg-normalize not found"}
     except Exception as e:
         logging.exception(
-            f"An unexpected error occurred during audio normalization or re-encoding: {e}"
+            f"An unexpected error occurred during audio normalization: {e}"
         )
-        if os.path.exists(temp_normalized_file):
-            os.remove(temp_normalized_file)
         return {"status": "error", "message": str(e)}
 
 

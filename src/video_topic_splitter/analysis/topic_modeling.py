@@ -314,6 +314,15 @@ def process_transcript(
     register: str = "gen-ai",
 ) -> Dict:
     """Process transcript for topic modeling and segmentation."""
+    # Check if results already exist
+    results_path = os.path.join(project_path, "results.json")
+    if os.path.exists(results_path):
+        print(f"Loading existing results from: {results_path}")
+        with open(results_path, "r") as f:
+            results = json.load(f)
+        return results
+
+    # If no existing results, proceed with analysis
     analyzer = TopicAnalyzer(register=register)
 
     # Identify segments with topic analysis

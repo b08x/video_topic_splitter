@@ -10,12 +10,12 @@ from dotenv import load_dotenv
 from groq import Groq
 
 from .analysis.topic_modeling import process_transcript
+from .analysis.visual_analysis import split_and_analyze_video
 from .api.deepgram import transcribe_file_deepgram
 from .constants import CHECKPOINTS
 from .processing.audio.audio import extract_audio  # Corrected import path
 from .processing.audio.audio import (convert_to_mono_and_resample,
                                      normalize_audio, remove_silence)
-from .processing.video.video_analysis import split_and_analyze_video
 from .project import save_checkpoint
 from .prompt_templates import get_analysis_prompt, get_topic_prompt
 from .transcription import (  # if transcription.py is still used. Otherwise, remove.

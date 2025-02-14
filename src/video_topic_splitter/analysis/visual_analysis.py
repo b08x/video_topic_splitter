@@ -22,6 +22,22 @@ from ..utils.thumbnail import ThumbnailManager
 logger = logging.getLogger(__name__)
 
 
+def load_analyzed_segments(segments_dir):
+    """Load any previously analyzed segments."""
+    analysis_file = os.path.join(segments_dir, "analyzed_segments.json")
+    if os.path.exists(analysis_file):
+        with open(analysis_file, "r") as f:
+            return json.load(f)
+    return []
+
+
+def save_analyzed_segments(segments_dir, analyzed_segments):
+    """Save the current state of analyzed segments."""
+    analysis_file = os.path.join(segments_dir, "analyzed_segments.json")
+    with open(analysis_file, "w") as f:
+        json.dump(analyzed_segments, f, indent=2)
+
+
 def detect_software_logos(frame, software_list=None, logo_db_path=None, threshold=0.8):
     """Analyze a frame for software logos using template matching.
 
@@ -78,6 +94,81 @@ def detect_software_logos(frame, software_list=None, logo_db_path=None, threshol
 
 # Configure paths
 LOGO_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "logos")
+
+
+def analyze_thumbnails(
+    thumbnails,
+    software_list=None,
+    logo_db_path=None,
+    ocr_lang="eng",
+    logo_threshold=0.8,
+    min_confidence=0.7,
+):
+    """Analyze thumbnails for software applications."""
+    results = []
+
+    for thumbnail_info in thumbnails:
+        try:
+            # Load thumbnail
+            frame = cv2.imread(thumbnail_info["path"])
+            if frame is None:
+                continue
+
+            # Analyze frame for software
+            analysis = {
+                "ocr_matches": detect_software_names(frame, software_list, ocr_lang),
+                "logo_matches": detect_software_logos(
+                    frame, software_list, logo_db_path, logo_threshold
+                ),
+            }
+
+            # Calculate confidence score
+            confidence = 0.0
+            if analysis["ocr_matches"]:
+                confidence = max(
+                    match["confidence"] for match in analysis["ocr_matches"]
+                )
+            if analysis["logo_matches"]:
+                logo_confidence = max(
+                    match["confidence"] for match in analysis["logo_matches"]
+                )
+                confidence = max(confidence, logo_confidence)
+
+            if confidence >= min_confidence:
+                results.append(
+                    {
+                        "thumbnail": thumbnail_info,
+                        "analysis": analysis,
+                        "confidence": confidence,
+                    }
+                )
+
+        except Exception as e:
+            logger.error(
+                f"Error analyzing thumbnail {thumbnail_info['path']}: {str(e)}"
+            )
+            continue
+
+    return results
+
+
+def analyze_frame_for_software(
+    frame,
+    software_list=None,
+    logo_db_path=None,
+    ocr_lang="eng",
+    logo_threshold=0.8,
+):
+    """Analyze a frame for software applications using OCR and logo detection."""
+    ocr_matches = detect_software_names(frame, software_list, ocr_lang)
+    logo_matches = detect_software_logos(
+        frame, software_list, logo_db_path, logo_threshold
+    )
+
+    return {
+        "ocr_matches": ocr_matches,
+        "logo_matches": logo_matches,
+    }
 
 
 def analyze_screenshot(
@@ -200,7 +291,15 @@ def analyze_segment_with_gemini(
     try:
         # Load the video segment
         video = VideoFileClip(segment_path)
-        video_fps = video.fps  # Get the video's FPS
+        try:
+            video_fps = video.fps  # Get the video's FPS
+            if video_fps is None or video_fps <= 0:
+                video_fps = 24  # Default to 24 fps if invalid or None
+            print(f"Segment FPS detected: {video_fps}")
+        except Exception as e:
+            logger.error(f"Error detecting segment FPS: {str(e)}")
+            video_fps = 24  # Default to 24 fps on error
+            print("Using default FPS: 24")
 
         # Initialize ThumbnailManager
         thumbnail_manager = ThumbnailManager(os.path.dirname(segment_path))
@@ -317,6 +416,7 @@ def split_and_analyze_video(
     register="it-workflow",
 ):
     """Split video into segments and analyze each segment with checkpoint support."""
+    print(f"Analyzing video: {input_video}")
     print("Splitting video into segments and analyzing...")
 
     # Create output directory if it doesn't exist
@@ -330,9 +430,17 @@ def split_and_analyze_video(
 
     try:
         video = VideoFileClip(input_video)
-        video_fps = video.fps  # Get the video's FPS
-        total_segments = len(segments)
+        try:
+            video_fps = video.fps  # Get the video's FPS
+            if video_fps is None or video_fps <= 0:
+                video_fps = 24  # Default to 24 fps if invalid or None
+            print(f"Video FPS detected: {video_fps}")
+        except Exception as e:
+            logger.error(f"Error detecting video FPS: {str(e)}")
+            video_fps = 24  # Default to 24 fps on error
+            print("Using default FPS: 24")
 
+        total_segments = len(segments)
         print(f"Processing {total_segments} segments...")
         for i, segment in enumerate(progressbar.progressbar(segments)):
             segment_id = i + 1
@@ -353,7 +461,7 @@ def split_and_analyze_video(
                         output_path,
                         codec="libx264",
                         audio_codec="aac",
-                        fps=video_fps,  # Use the original video's FPS
+                        fps=video_fps,  # We now know video_fps will always have a valid value
                         verbose=False,
                         logger=None,
                     )
@@ -402,10 +510,12 @@ def split_and_analyze_video(
         return analyzed_segments
 
     except Exception as e:
-        print("\nError during video splitting and analysis: {str(e)}")
+        error_msg = f"Error during video splitting and analysis: {str(e)}"
+        print(f"\n{error_msg}")
+        logger.error(f"Detailed error during video loading or processing: {str(e)}")
         # Save whatever progress we made
         save_analyzed_segments(output_dir, analyzed_segments)
-        raise
+        raise RuntimeError(error_msg)
     finally:
         # Make sure we always close the video file
         if "video" in locals():
