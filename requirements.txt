@@ -30,3 +30,8 @@ scikit-learn
 nltk
 tqdm
 ffmpeg-normalize
+srt
+ffmpeg-python
+unsilence
+pydub
+videogrep
