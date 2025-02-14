@@ -1,18 +1,20 @@
+# requirements.txt
+
 # Core dependencies
 python-dotenv>=1.0.0
 moviepy>=1.0.3
 progressbar2>=4.2.0
-yt-dlp>=2023.12.30
-openai>=1.3.0
-google-generativeai>=0.3.0
+yt-dlp>=2024.3.24 # Updated version
+openai>=1.12.0 # Updated version
+google-generativeai>=0.4.3 # Updated version
 deepgram-sdk>=2.12.0
 groq>=0.4.0
-videogrep>=2.0.0
+videogrep>=2.0.0 # Updated version
 
 # Video and image processing
 opencv-python>=4.8.0
 numpy>=1.24.0
-Pillow>=10.0.0
+Pillow>=10.2.0
 
 # OCR dependencies
 pytesseract>=0.3.10
@@ -20,18 +22,18 @@ pytesseract>=0.3.10
 # Topic modeling
 openrouter>=0.3.0
 
-# Development dependencies
+# Audio processing
+ffmpeg-normalize # Added as direct dependency
+ffmpeg-python>=0.2.0 # Added explicit version
+unsilence>=0.4.2 # Added explicit version
+pydub>=0.25.1
+
+# Analysis and ML
+scikit-learn>=1.4.1
+nltk>=3.8.1
+tqdm # kept for progress display in topic_modeling
+
+# Development dependencies (optional, for development/testing)
 black>=23.0.0
 pylint>=3.0.0
 pytest>=7.0.0
-
-yt_dlp
-scikit-learn
-nltk
-tqdm
-ffmpeg-normalize
-srt
-ffmpeg-python
-unsilence
-pydub
-videogrep
