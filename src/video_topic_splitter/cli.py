@@ -7,11 +7,10 @@ import sys
 from typing import Optional, Tuple
 
 from dotenv import load_dotenv
-
-from .constants import CHECKPOINTS
-from .core import process_video
-from .project import create_project_folder, load_checkpoint
-from .utils.youtube import is_youtube_url
+from video_topic_splitter.constants import CHECKPOINTS
+from video_topic_splitter.core import process_video
+from video_topic_splitter.project import create_project_folder, load_checkpoint
+from video_topic_splitter.utils.youtube import is_youtube_url
 
 
 def validate_input(

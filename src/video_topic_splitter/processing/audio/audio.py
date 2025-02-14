@@ -84,9 +84,7 @@ def normalize_audio(input_file, output_file, lowpass_freq=6000, highpass_freq=10
             command.extend(
                 [
                     "-c:a",
-                    "aac",
-                    "-b:a",
-                    "128k",
+                    "libopus",
                 ]
             )
         else:

@@ -112,7 +112,10 @@ def analyze_thumbnails(
             # Load thumbnail
             frame = cv2.imread(thumbnail_info["path"])
             if frame is None:
-                continue
+                logger.warning(
+                    f"cv2.imread failed to load thumbnail: {thumbnail_info['path']}"
+                )
+                continue  # Skip to the next thumbnail
 
             # Analyze frame for software
             analysis = {
@@ -165,10 +168,16 @@ def analyze_frame_for_software(
         frame, software_list, logo_db_path, logo_threshold
     )
 
-    return {
+    analysis_results = {
         "ocr_matches": ocr_matches,
         "logo_matches": logo_matches,
     }
+
+    return (
+        analysis_results
+        if analysis_results
+        else {"ocr_matches": [], "logo_matches": []}
+    )  # Ensure dict is always returned
 
 
 def analyze_screenshot(
@@ -192,6 +201,7 @@ def analyze_screenshot(
         # Read the image
         frame = cv2.imread(image_path)
         if frame is None:
+            logger.warning(f"cv2.imread failed to load image: {image_path}")
             raise ValueError(f"Could not read image file: {image_path}")
 
         # Create PIL Image for Gemini
