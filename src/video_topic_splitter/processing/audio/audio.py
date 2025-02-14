@@ -1,3 +1,4 @@
+# processing/audio/audio.py
 #!/usr/bin/env python3
 """Audio processing utilities for video topic splitter."""
 

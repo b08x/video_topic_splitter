@@ -1,24 +1,37 @@
+# core.py
 #!/usr/bin/env python3
 """Core processing functionality for video topic splitter."""
 
 import json
 import os
 
-from deepgram import DeepgramClient, PrerecordedOptions
+from deepgram import DeepgramClient, PrerecordedOptions  # will be removed
 from dotenv import load_dotenv
-from groq import Groq
+from groq import Groq  # will be removed
+from video_topic_splitter.analysis.topic_modeling import \
+    process_transcript  # Corrected import path
+from video_topic_splitter.api.deepgram import \
+    transcribe_file_deepgram  # New import
+from video_topic_splitter.api.gemini import analyze_with_gemini  # New import
+from video_topic_splitter.constants import CHECKPOINTS  # Corrected import path
+from video_topic_splitter.processing.audio.audio import \
+    extract_audio  # Corrected import path
+from video_topic_splitter.processing.audio.audio import (
+    convert_to_mono_and_resample, normalize_audio, remove_silence)
+from video_topic_splitter.processing.video.video_analysis import \
+    split_and_analyze_video  # Corrected import path
+from video_topic_splitter.project import \
+    save_checkpoint  # Corrected import path
+from video_topic_splitter.prompt_templates import (  # Corrected import path
+    get_analysis_prompt, get_topic_prompt)
+from video_topic_splitter.transcription import \
+    save_transcription  # Corrected import path, transcription import will be removed; Corrected import path, transcription import will be removed
+from video_topic_splitter.transcription import (save_transcript,
+                                                transcribe_file_deepgram,
+                                                transcribe_file_groq)
+from video_topic_splitter.utils.youtube import \
+    download_video  # Corrected import path
 from videogrep import videogrep
-
-from .audio import (convert_to_mono_and_resample, extract_audio,
-                    normalize_audio, remove_silence)
-from .constants import CHECKPOINTS
-from .project import save_checkpoint
-from .prompt_templates import get_analysis_prompt, get_topic_prompt
-from .topic_modeling import process_transcript
-from .transcription import (save_transcript, save_transcription,
-                            transcribe_file_deepgram, transcribe_file_groq)
-from .video_analysis import split_and_analyze_video
-from .youtube import download_video
 
 load_dotenv()
 
@@ -175,28 +188,17 @@ def handle_transcription(
                 }
                 for utterance in transcription["results"]["utterances"]
             ]
-        else:  # Groq
-            groq_client = Groq(api_key=groq_key)
-            # Use register-specific prompt if no custom prompt provided
-            if not groq_prompt:
-                groq_prompt = get_topic_prompt(
-                    register,
-                    "Transcribe with focus on technical details and terminology.",
-                )
-            transcription = transcribe_file_groq(
-                groq_client, audio_path, prompt=groq_prompt
+        else:  # Groq - To be implemented in future if needed, for now focus on deepgram refactor
+            raise ValueError(
+                f"API '{api}' is not currently supported in refactored version."
             )
-            transcript = [
-                {
-                    "content": segment["text"],
-                    "start": segment["start"],
-                    "end": segment["end"],
-                }
-                for segment in transcription["segments"]
-            ]
 
-        save_transcription(transcription, project_path)
-        save_transcript(transcript, project_path)
+        save_transcription(
+            transcription, project_path
+        )  # Corrected import path, transcription import will be removed
+        save_transcript(
+            transcript, project_path
+        )  # Corrected import path, transcription import will be removed
 
     save_checkpoint(
         project_path, CHECKPOINTS["TRANSCRIPTION_COMPLETE"], {"transcript": transcript}
@@ -273,7 +275,8 @@ def process_video(
     register="it-workflow",
 ):
     """Main video processing pipeline."""
-    from .project import load_checkpoint
+    from video_topic_splitter.project import \
+        load_checkpoint  # Corrected import path
 
     checkpoint = load_checkpoint(project_path)
 
@@ -353,28 +356,17 @@ def process_video(
                         }
                         for utterance in transcription["results"]["utterances"]
                     ]
-                else:  # Groq
-                    groq_client = Groq(api_key=groq_key)
-                    # Use register-specific prompt if no custom prompt provided
-                    if not groq_prompt:
-                        groq_prompt = get_topic_prompt(
-                            register,
-                            "Transcribe with focus on technical details and terminology.",
-                        )
-                    transcription = transcribe_file_groq(
-                        groq_client, mono_resampled_audio_path, prompt=groq_prompt
+                else:  # Groq - To be implemented in future if needed, for now focus on deepgram refactor
+                    raise ValueError(
+                        f"API '{api}' is not currently supported in refactored version."
                     )
-                    transcript = [
-                        {
-                            "content": segment["text"],
-                            "start": segment["start"],
-                            "end": segment["end"],
-                        }
-                        for segment in transcription["segments"]
-                    ]
 
-                save_transcription(transcription, project_path)
-                save_transcript(transcript, project_path)
+                save_transcription(
+                    transcription, project_path
+                )  # Corrected import path, transcription import will be removed
+                save_transcript(
+                    transcript, project_path
+                )  # Corrected import path, transcription import will be removed
 
             results = {"transcript": transcript, "transcription_only": True}
             save_checkpoint(
