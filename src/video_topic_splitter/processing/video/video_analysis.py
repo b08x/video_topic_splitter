@@ -12,16 +12,15 @@ import numpy as np
 import progressbar
 from moviepy.editor import VideoFileClip
 from PIL import Image, UnidentifiedImageError
-from video_topic_splitter.analysis.visual_analysis import \
+
+from ...analysis.visual_analysis import \
     detect_software_logos  # Corrected import path
-from video_topic_splitter.api.gemini import \
-    analyze_with_gemini  # Corrected import path
-from video_topic_splitter.constants import CHECKPOINTS
-from video_topic_splitter.processing.ocr.ocr_detection import \
-    detect_software_names
-from video_topic_splitter.project import save_checkpoint
-from video_topic_splitter.prompt_templates import get_analysis_prompt
-from video_topic_splitter.utils.thumbnail import ThumbnailManager
+from ...api.gemini import analyze_with_gemini  # Corrected import path
+from ...constants import CHECKPOINTS
+from ...project import save_checkpoint
+from ...prompt_templates import get_analysis_prompt
+from ...utils.thumbnail import ThumbnailManager
+from ..ocr.ocr_detection import detect_software_names
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +182,7 @@ def split_and_analyze_video(
                     )
 
                 # Analyze the segment with software detection - moved to analysis/visual_analysis.py and called from there.
-                from video_topic_splitter.analysis.visual_analysis import \
+                from ...analysis.visual_analysis import \
                     analyze_segment_with_gemini  # Import here to avoid circular import.
 
                 analysis_results = analyze_segment_with_gemini(  # Calling from analysis/visual_analysis.py

@@ -6,9 +6,8 @@ import os
 import pickle
 import time
 
-from video_topic_splitter.constants import CHECKPOINTS  # Corrected import path
-from video_topic_splitter.utils.youtube import \
-    is_youtube_url  # Corrected import path
+from .constants import CHECKPOINTS
+from .utils.youtube import is_youtube_url
 
 
 def create_project_folder(input_path, base_output_dir):

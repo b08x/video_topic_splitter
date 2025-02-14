@@ -7,16 +7,11 @@ import sys
 from typing import Optional, Tuple
 
 from dotenv import load_dotenv
-from video_topic_splitter.constants import CHECKPOINTS  # Corrected import path
-from video_topic_splitter.core import process_video  # Corrected import path
-from video_topic_splitter.project import (  # Corrected import path
-    create_project_folder, load_checkpoint)
-from video_topic_splitter.topic_modeling import \
-    process_transcript  # Corrected import path, transcription import will be removed
-from video_topic_splitter.transcription import \
-    load_transcript  # This import will be removed
-from video_topic_splitter.utils.youtube import \
-    is_youtube_url  # Corrected import path
+
+from .constants import CHECKPOINTS
+from .core import process_video
+from .project import create_project_folder, load_checkpoint
+from .utils.youtube import is_youtube_url
 
 
 def validate_input(
@@ -185,8 +180,7 @@ def main() -> None:
                     print(f"Error reading software list file: {str(e)}")
                     sys.exit(1)
 
-            from video_topic_splitter.analysis.visual_analysis import \
-                analyze_screenshot  # Corrected import path
+            from .analysis.visual_analysis import analyze_screenshot
 
             results = analyze_screenshot(
                 args.input,

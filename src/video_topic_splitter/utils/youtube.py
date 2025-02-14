@@ -8,8 +8,8 @@ import re
 from typing import Dict, List, Optional
 
 import yt_dlp
-from video_topic_splitter.utils.thumbnail import \
-    ThumbnailManager  # Corrected import path
+
+from .thumbnail import ThumbnailManager
 
 logger = logging.getLogger(__name__)
 

@@ -18,9 +18,10 @@ from nltk.tokenize import sent_tokenize
 from openai import AsyncOpenAI, OpenAI
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from video_topic_splitter.constants import CHECKPOINTS
-from video_topic_splitter.project import save_checkpoint
-from video_topic_splitter.prompt_templates import get_topic_prompt
+
+from ..constants import CHECKPOINTS
+from ..project import save_checkpoint
+from ..prompt_templates import get_topic_prompt
 
 # Download required NLTK data
 try:

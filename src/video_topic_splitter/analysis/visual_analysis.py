@@ -11,17 +11,20 @@ import numpy as np
 import progressbar
 from moviepy.editor import VideoFileClip
 from PIL import Image, UnidentifiedImageError
-from video_topic_splitter.api.gemini import analyze_with_gemini
-from video_topic_splitter.constants import CHECKPOINTS
-from video_topic_splitter.processing.ocr.ocr_detection import \
-    detect_software_names
-from video_topic_splitter.processing.video.video_analysis import (
-    LOGO_DB_PATH, analyze_frame_for_software, analyze_thumbnails,
-    load_analyzed_segments, save_analyzed_segments)
-from video_topic_splitter.project import save_checkpoint
-from video_topic_splitter.prompt_templates import get_analysis_prompt
-from video_topic_splitter.utils.thumbnail import ThumbnailManager
 
+from ..api.gemini import analyze_with_gemini
+from ..constants import CHECKPOINTS
+from ..processing.ocr.ocr_detection import detect_software_names
+from ..processing.video.video_analysis import (LOGO_DB_PATH,
+                                               analyze_frame_for_software,
+                                               analyze_thumbnails,
+                                               load_analyzed_segments,
+                                               save_analyzed_segments)
+from ..project import save_checkpoint
+from ..prompt_templates import get_analysis_prompt
+from ..utils.thumbnail import ThumbnailManager
+
+# from ...processing.video.video_analysis import analyze_frame_for_software, analyze_thumbnails # Corrected import path
 logger = logging.getLogger(__name__)
 
 

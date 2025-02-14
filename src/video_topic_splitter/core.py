@@ -7,31 +7,22 @@ import os
 
 from deepgram import DeepgramClient, PrerecordedOptions  # will be removed
 from dotenv import load_dotenv
-from groq import Groq  # will be removed
-from video_topic_splitter.analysis.topic_modeling import \
-    process_transcript  # Corrected import path
-from video_topic_splitter.api.deepgram import \
-    transcribe_file_deepgram  # New import
-from video_topic_splitter.api.gemini import analyze_with_gemini  # New import
-from video_topic_splitter.constants import CHECKPOINTS  # Corrected import path
-from video_topic_splitter.processing.audio.audio import \
-    extract_audio  # Corrected import path
-from video_topic_splitter.processing.audio.audio import (
-    convert_to_mono_and_resample, normalize_audio, remove_silence)
-from video_topic_splitter.processing.video.video_analysis import \
-    split_and_analyze_video  # Corrected import path
-from video_topic_splitter.project import \
-    save_checkpoint  # Corrected import path
-from video_topic_splitter.prompt_templates import (  # Corrected import path
-    get_analysis_prompt, get_topic_prompt)
-from video_topic_splitter.transcription import \
-    save_transcription  # Corrected import path, transcription import will be removed; Corrected import path, transcription import will be removed
-from video_topic_splitter.transcription import (save_transcript,
-                                                transcribe_file_deepgram,
-                                                transcribe_file_groq)
-from video_topic_splitter.utils.youtube import \
-    download_video  # Corrected import path
+from groq import Groq
+# from .api.gemini import analyze_with_gemini # not directly used here
 from videogrep import videogrep
+
+from .analysis.topic_modeling import process_transcript
+from .api.deepgram import transcribe_file_deepgram
+from .constants import CHECKPOINTS
+from .processing.audio.audio import extract_audio  # Corrected import path
+from .processing.audio.audio import (convert_to_mono_and_resample,
+                                     normalize_audio, remove_silence)
+from .processing.video.video_analysis import split_and_analyze_video
+from .project import save_checkpoint
+from .prompt_templates import get_analysis_prompt, get_topic_prompt
+from .transcription import (  # if transcription.py is still used. Otherwise, remove.
+    save_transcript, save_transcription)
+from .utils.youtube import download_video
 
 load_dotenv()
 
@@ -275,8 +266,9 @@ def process_video(
     register="it-workflow",
 ):
     """Main video processing pipeline."""
+
     from video_topic_splitter.project import \
-        load_checkpoint  # Corrected import path
+        load_checkpoint  # Corrected import pat
 
     checkpoint = load_checkpoint(project_path)
 
