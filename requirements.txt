@@ -27,7 +27,7 @@ ffmpeg-normalize # Added as direct dependency
 ffmpeg-python>=0.2.0 # Added explicit version
 unsilence>=0.4.2 # Added explicit version
 pydub>=0.25.1
-
+moviepy
 # Analysis and ML
 scikit-learn>=1.4.1
 nltk>=3.8.1

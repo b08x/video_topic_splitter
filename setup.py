@@ -24,6 +24,7 @@ setup(
         "deepgram-sdk>=2.12.0",
         "groq>=0.4.0",
         "pydub>=0.25.1",
+        "moviepy",
         "openai>=1.12.0",  # Corrected version to match requirements.txt
         "google-generativeai>=0.4.3",  # Corrected version to match requirements.txt
         "videogrep>=2.0.0",  # Corrected version to match requirements.txt
