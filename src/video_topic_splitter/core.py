@@ -8,8 +8,6 @@ import os
 from deepgram import DeepgramClient, PrerecordedOptions  # will be removed
 from dotenv import load_dotenv
 from groq import Groq
-# from .api.gemini import analyze_with_gemini # not directly used here
-from videogrep import videogrep
 
 from .analysis.topic_modeling import process_transcript
 from .api.deepgram import transcribe_file_deepgram
@@ -21,8 +19,11 @@ from .processing.video.video_analysis import split_and_analyze_video
 from .project import save_checkpoint
 from .prompt_templates import get_analysis_prompt, get_topic_prompt
 from .transcription import (  # if transcription.py is still used. Otherwise, remove.
-    save_transcript, save_transcription)
+    load_transcript, save_transcript, save_transcription)
 from .utils.youtube import download_video
+
+# from .api.gemini import analyze_with_gemini # not directly used here
+
 
 load_dotenv()
 
@@ -139,9 +140,13 @@ def handle_transcription(
     segments_dir = os.path.join(project_path, "segments")
     os.makedirs(segments_dir, exist_ok=True)
 
-    print("Parsing transcript with Videogrep...")
-    transcript = videogrep.parse_transcript(video_path)
-    print("Transcript parsing complete.")
+    # First try to load existing transcript
+    transcript_path = os.path.join(project_path, "transcript.json")
+    transcript = None
+    if os.path.exists(transcript_path):
+        print("Loading existing transcript...")
+        transcript = load_transcript(transcript_path)
+        print("Transcript loaded.")
 
     if not transcript:
         print("No transcript found. Transcribing audio...")
@@ -313,9 +318,12 @@ def process_video(
         if transcribe_only:
             print("Transcribe-only mode: Skipping topic modeling and video analysis...")
             # Get transcript only
-            print("Parsing transcript with Videogrep...")
-            transcript = videogrep.parse_transcript(unsilenced_video_path)
-            print("Transcript parsing complete.")
+            transcript_path = os.path.join(project_path, "transcript.json")
+            transcript = None
+            if os.path.exists(transcript_path):
+                print("Loading existing transcript...")
+                transcript = load_transcript(transcript_path)
+                print("Transcript loaded.")
 
             if not transcript:
                 print("No transcript found. Transcribing audio...")

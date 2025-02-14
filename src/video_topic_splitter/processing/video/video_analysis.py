@@ -126,6 +126,7 @@ def split_and_analyze_video(
 
     try:
         video = VideoFileClip(input_video)
+        video_fps = video.fps  # Get the video's FPS
         total_segments = len(segments)
 
         print(f"Processing {total_segments} segments...")
@@ -148,6 +149,7 @@ def split_and_analyze_video(
                         output_path,
                         codec="libx264",
                         audio_codec="aac",
+                        fps=video_fps,  # Use the original video's FPS
                         verbose=False,
                         logger=None,
                     )

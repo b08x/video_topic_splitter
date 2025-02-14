@@ -89,19 +89,7 @@ def analyze_screenshot(
     logo_threshold=0.8,
     context=None,
 ):
-    """Analyze a single screenshot for software applications using OCR and logo detection.
-
-    Args:
-        image_path: Path to the image file
-        project_path: Path to save results
-        software_list: Optional list of software names to detect
-        logo_db_path: Optional path to logo database
-        ocr_lang: Language for OCR detection
-        logo_threshold: Confidence threshold for logo detection
-
-    Returns:
-        dict: Analysis results including Gemini analysis and software detections
-    """
+    """Analyze a single screenshot for software applications using OCR and logo detection."""
     # Initialize project with PROJECT_CREATED checkpoint if not already initialized
     from video_topic_splitter.project import load_checkpoint
 
@@ -209,18 +197,20 @@ def analyze_segment_with_gemini(
     """Analyze a video segment using Google's Gemini model and software detection."""
     print(f"Analyzing segment: {segment_path}")
 
-    # Check if Gemini API key is configured - moved to api/gemini.py
-
     try:
         # Load the video segment
         video = VideoFileClip(segment_path)
+        video_fps = video.fps  # Get the video's FPS
 
         # Initialize ThumbnailManager
         thumbnail_manager = ThumbnailManager(os.path.dirname(segment_path))
 
         # Generate thumbnails
         thumbnails = thumbnail_manager.generate_thumbnails(
-            segment_path, interval=5, max_thumbnails=5
+            segment_path,
+            interval=5,
+            max_thumbnails=5,
+            fps=video_fps,  # Pass FPS to thumbnail generation
         )
 
         # Analyze thumbnails
@@ -239,7 +229,7 @@ def analyze_segment_with_gemini(
             thumbnail_results
             and max(r["confidence"] for r in thumbnail_results)
             < min_thumbnail_confidence
-        ):  # added check if thumbnail_results is not empty before calling max
+        ):
             duration = video.duration
             frame_times = [0, duration / 2, duration - 0.1]
 
@@ -340,6 +330,7 @@ def split_and_analyze_video(
 
     try:
         video = VideoFileClip(input_video)
+        video_fps = video.fps  # Get the video's FPS
         total_segments = len(segments)
 
         print(f"Processing {total_segments} segments...")
@@ -362,6 +353,7 @@ def split_and_analyze_video(
                         output_path,
                         codec="libx264",
                         audio_codec="aac",
+                        fps=video_fps,  # Use the original video's FPS
                         verbose=False,
                         logger=None,
                     )

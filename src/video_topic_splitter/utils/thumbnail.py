@@ -49,11 +49,17 @@ class ThumbnailManager:
             logger.error(f"Error saving thumbnail metadata: {str(e)}")
 
     def generate_thumbnails(
-        self, video_path: str, interval: int = 30, max_thumbnails: int = 10
+        self,
+        video_path: str,
+        interval: int = 30,
+        max_thumbnails: int = 10,
+        fps: Optional[float] = None,
     ) -> List[Dict]:
         """Generate thumbnails from a video file at specified intervals."""
         try:
             video = VideoFileClip(video_path)
+            if fps is None:
+                fps = video.fps  # Get video's FPS if not provided
             duration = video.duration
 
             # Calculate number of thumbnails based on interval and max_thumbnails
@@ -67,8 +73,11 @@ class ThumbnailManager:
             thumbnails = []
             for i in range(num_thumbnails):
                 time = i * actual_interval
-                # Get frame at specified time
+                # Get frame at specified time, ensuring we use the correct FPS
                 frame = video.get_frame(time)
+                if frame is None:
+                    logger.warning(f"Could not get frame at time {time}s, skipping...")
+                    continue
 
                 # Convert to PIL Image
                 image = Image.fromarray(frame)
