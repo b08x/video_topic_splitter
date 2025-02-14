@@ -14,3 +14,5 @@ CHECKPOINTS = {
     "SCREENSHOT_ANALYZED": 8,  # New checkpoint for screenshot analysis
     "PROCESS_COMPLETE": 9,
 }
+
+LOGO_DB_PATH = "video_topic_splitter/data/logos"  # Path relative to the project root in final package

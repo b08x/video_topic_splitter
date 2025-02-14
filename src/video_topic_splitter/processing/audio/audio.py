@@ -168,8 +168,8 @@ def extract_audio(video_path, output_path):
         (
             ffmpeg.input(video_path)
             .output(
-                output_path, format="aac", acodec="aac", b="128k"
-            )  # Specify AAC codec
+                output_path, format="ipod", acodec="aac", b="128k"
+            )  # Use ipod format for m4a container with AAC codec
             .run(overwrite_output=True)
         )
         logging.info("Audio extraction complete.")

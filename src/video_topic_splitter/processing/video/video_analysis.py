@@ -13,22 +13,13 @@ import progressbar
 from moviepy.editor import VideoFileClip
 from PIL import Image, UnidentifiedImageError
 
-from ...analysis.visual_analysis import \
-    detect_software_logos  # Corrected import path
+from ...analysis.visual_analysis import LOGO_DB_PATH, detect_software_logos
 from ...api.gemini import analyze_with_gemini  # Corrected import path
 from ...constants import CHECKPOINTS
 from ...project import save_checkpoint
-from ...prompt_templates import get_analysis_prompt
-from ...utils.thumbnail import ThumbnailManager
 from ..ocr.ocr_detection import detect_software_names
 
 logger = logging.getLogger(__name__)
-
-
-# Configure paths - LOGO_DB_PATH is now used in logo_detection.py directly.
-LOGO_DB_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "data", "logos"
-)  # Adjusted path
 
 
 def load_analyzed_segments(segments_dir):
@@ -53,28 +44,6 @@ def save_analyzed_segments(segments_dir, analyzed_segments):
 # analyze_segment_with_gemini moved to analysis/visual_analysis.py
 
 
-def analyze_frame_for_software(
-    frame, software_list=None, logo_db_path=None, ocr_lang="eng", logo_threshold=0.8
-):
-    """Analyze a single frame for software applications using OCR and logo detection."""
-    results = {"ocr_matches": [], "logo_matches": []}
-
-    if software_list:
-        # Perform OCR detection
-        ocr_matches = detect_software_names(frame, software_list, lang=ocr_lang)
-        if ocr_matches:
-            results["ocr_matches"] = ocr_matches
-
-        # Perform logo detection
-        logo_matches = detect_software_logos(
-            frame, software_list, logo_db_path or LOGO_DB_PATH, threshold=logo_threshold
-        )
-        if logo_matches:
-            results["logo_matches"] = logo_matches
-
-    return results
-
-
 def analyze_thumbnails(
     thumbnails,
     software_list=None,
@@ -93,7 +62,9 @@ def analyze_thumbnails(
             if frame is None:
                 continue
 
-            # Analyze frame
+            # Analyze frame using function from visual_analysis
+            from ...analysis.visual_analysis import analyze_frame_for_software
+
             analysis = analyze_frame_for_software(
                 frame, software_list, logo_db_path, ocr_lang, logo_threshold
             )
