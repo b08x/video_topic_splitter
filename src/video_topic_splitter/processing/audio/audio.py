@@ -1,6 +1,5 @@
 # processing/audio/audio.py
 #!/usr/bin/env python3
-"""Audio processing utilities for video topic splitter."""
 
 """Audio processing utilities."""
 
@@ -10,6 +9,7 @@ import subprocess
 from contextlib import contextmanager
 
 import ffmpeg
+from moviepy.editor import VideoFileClip
 from pydub import AudioSegment
 from unsilence import Unsilence
 
@@ -159,24 +159,9 @@ def remove_silence(input_file, output_file, audible_speed=2, silent_speed=8):
 def extract_audio(video_path, output_path):
     """Extract audio from video file using ffmpeg-python, specifying AAC codec."""
     logging.info("Extracting audio from video...")
-    try:
-        (
-            ffmpeg.input(video_path)
-            .output(
-                output_path, format="ipod", acodec="aac", b="128k"
-            )  # Use ipod format for m4a container with AAC codec
-            .run(overwrite_output=True)
-        )
-        logging.info("Audio extraction complete.")
-        return {"status": "success", "message": ""}
-    except ffmpeg.Error as e:
-        logging.error(f"Error during audio extraction: {e.stderr}")
-        return {"status": "error", "message": e.stderr}
-    except FileNotFoundError:
-        logging.critical(
-            f"ffmpeg not found. Please ensure it is installed and in your PATH."
-        )
-        return {"status": "error", "message": "ffmpeg not found"}
-    except Exception as e:
-        logging.exception(f"An unexpected error occurred during audio extraction: {e}")
-        return {"status": "error", "message": str(e)}
+
+    video = VideoFileClip(video_path)  # Create VideoFileClip instance here
+
+    video.audio.write_audiofile(output_path, codec="opus", fps=48000)
+
+    logging.info(f"Audio extracted and saved to {output_path}")

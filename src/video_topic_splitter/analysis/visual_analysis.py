@@ -127,14 +127,12 @@ def analyze_thumbnails(
 
             # Calculate confidence score
             confidence = 0.0
-            if analysis["ocr_matches"]:
-                confidence = max(
-                    match["confidence"] for match in analysis["ocr_matches"]
-                )
-            if analysis["logo_matches"]:
-                logo_confidence = max(
-                    match["confidence"] for match in analysis["logo_matches"]
-                )
+            ocr_matches = analysis.get("ocr_matches")
+            if ocr_matches and isinstance(ocr_matches, list):
+                confidence = max(match["confidence"] for match in ocr_matches)
+            logo_matches = analysis.get("logo_matches")
+            if logo_matches and isinstance(logo_matches, list):
+                logo_confidence = max(match["confidence"] for match in logo_matches)
                 confidence = max(confidence, logo_confidence)
 
             if confidence >= min_confidence:

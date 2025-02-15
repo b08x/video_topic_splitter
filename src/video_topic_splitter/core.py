@@ -39,7 +39,7 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
     # Define paths using original file extension
     normalized_video_path = os.path.join(project_path, f"normalized_video{video_ext}")
     unsilenced_video_path = os.path.join(project_path, f"unsilenced_video{video_ext}")
-    raw_audio_path = os.path.join(audio_dir, "extracted_audio.m4a")
+    raw_audio_path = os.path.join(audio_dir, "extracted_audio.opus")
     mono_resampled_audio_path = os.path.join(audio_dir, "mono_resampled_audio.m4a")
 
     # Check for existing processed files
