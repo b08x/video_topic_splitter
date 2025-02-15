@@ -12,26 +12,29 @@ RUN useradd -ms /bin/bash -u 1000 -g 1001 vts
 
 # Install Python and other system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    nano \
     python3 \
     python3-pip \
     python3-dev build-essential \
+    libxcb-glx0 \
+    libxxf86vm-dev \
+    libxcb-cursor0 \
     tesseract-ocr \
     tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/vts
 
-# Copy application code (including setup.py and data/logos)
-COPY src /home/vts/src
-COPY setup.py /home/vts/
-COPY requirements.txt /home/vts/
-
-# Set ownership and install dependencies as root
-RUN chown -R vts:vts /home/vts && \
-    pip install --no-cache-dir .
-
+ENV PATH="$HOME/.local/bin:${PATH}"
 # Switch to non-root user after installation
-USER vts
+# Copy application code with correct permissions
+COPY --chown=vts:vts src /home/vts/src
+COPY --chown=vts:vts setup.py /home/vts/
+COPY --chown=vts:vts requirements.txt /home/vts/
+
+# Install dependencies as user
+RUN pip install --user --no-cache-dir .
 
 # Set entrypoint (using -m for correct module resolution)
-ENTRYPOINT ["python", "-m", "video_topic_splitter.cli"]
+# ENTRYPOINT ["python3", "-m", "video_topic_splitter.cli"]
+ENTRYPOINT ["/bin/bash"]
