@@ -1,6 +1,28 @@
-# Video Topic Splitter
+# Video Topic Splitter 🎬
 
 **An AI-powered tool to automatically segment videos based on topic changes and analyze their content.**
+
+## Table of Contents
+
+- [Video Topic Splitter 🎬](#video-topic-splitter-)
+  - [Table of Contents](#table-of-contents)
+  - [About 📖](#about-)
+  - [Features ✨](#features-)
+  - [Installation 💾](#installation-)
+  - [Usage 💻](#usage-)
+    - [Basic Video Processing](#basic-video-processing)
+    - [Transcribe Only](#transcribe-only)
+    - [Analyze Screenshot](#analyze-screenshot)
+    - [Advanced Options](#advanced-options)
+  - [Project Structure 📂](#project-structure-)
+  - [Configuration ⚙️](#configuration-️)
+  - [Dockerized Deployment 🐳](#dockerized-deployment-)
+    - [Docker Compose Setup](#docker-compose-setup)
+    - [Dockerfile Explanation](#dockerfile-explanation)
+  - [Contributing 🧑‍💻](#contributing-)
+  - [License 📜](#license-)
+
+## About 📖
 
 This tool leverages advanced AI techniques, including audio processing, transcription, topic modeling, and visual analysis, to break down videos into meaningful segments based on shifts in conversation or subject matter. It then provides insights into each segment, including:
 
@@ -12,7 +34,7 @@ This tool leverages advanced AI techniques, including audio processing, transcri
   - **Generative AI:** Focuses on AI models, prompt engineering, and implementation details.
   - **Tech Support:** Identifies problem descriptions, diagnostic procedures, and resolution steps.
 
-## Features
+## Features ✨
 
 - **Automatic Segmentation:** Intelligently splits videos into topic-coherent segments.
 - **Topic Modeling:** Uses OpenRouter's phi-4 model for accurate topic identification.
@@ -24,13 +46,13 @@ This tool leverages advanced AI techniques, including audio processing, transcri
 - **Customizable Analysis:** Tailor the analysis with different registers (IT Workflow, Generative AI, Tech Support).
 - **Screenshot Analysis:** Analyze individual screenshots for software applications and get Gemini insights.
 
-## Installation
+## Installation 💾
 
 ```bash
 pip install video_topic_splitter
 ```
 
-## Usage
+## Usage 💻
 
 ### Basic Video Processing
 
@@ -69,7 +91,7 @@ video-topic-splitter -i <image_path> -o <output_directory> --analyze-screenshot 
 - `--max-thumbnails <number>`: Limit the maximum number of thumbnails per segment (default: 5).
 - `--min-thumbnail-confidence`: Minimum confidence for thumbnail-based software detection before analyzing more frames.
 
-## Project Structure
+## Project Structure 📂
 
 The tool creates a project folder for each video processed, containing:
 
@@ -81,7 +103,7 @@ The tool creates a project folder for each video processed, containing:
 - `results.json`: Final results including topic analysis, keywords, and segment metadata.
 - `checkpoint.pkl`: Checkpoint file to resume processing.
 
-## Configuration
+## Configuration ⚙️
 
 - **API Keys:** Set the following environment variables with your API keys:
   - `DG_API_KEY` (Deepgram)
@@ -89,7 +111,7 @@ The tool creates a project folder for each video processed, containing:
   - `GEMINI_API_KEY` (Google Gemini)
   - `OPENROUTER_API_KEY` (OpenRouter)
 
-## Dockerized Deployment
+## Dockerized Deployment 🐳
 
 To simplify deployment and dependency management, the Video Topic Splitter can be run within a Docker container.  We provide a `Dockerfile` and `docker-compose.yml` to facilitate this process.
 
@@ -138,10 +160,10 @@ The `Dockerfile` uses the `linuxserver/ffmpeg` image as a base, providing pre-in
 - Installing Python dependencies using `pip`.
 - Setting the entrypoint to run the `video-topic-splitter` command.  The Dockerfile now uses a bash entrypoint to allow for dynamic command execution.
 
-## Contributing
+## Contributing 🧑‍💻
 
 This is an exercise in using Large Language Models to craft an applicatio using Python.
 
-## License
+## License 📜
 
 [MIT License](LICENSE)
