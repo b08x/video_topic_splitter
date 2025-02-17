@@ -5,3 +5,5 @@ build/**/
 .env
 video_topic_splitter.json
 *.wav
+video_topic_splitter.code-workspace
+.vscode

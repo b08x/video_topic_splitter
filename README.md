@@ -1,199 +1,147 @@
-# Video Topic Splitter 🎬
+# Video Topic Splitter
 
-A powerful AI-driven tool for intelligent video content analysis and segmentation.
+**An AI-powered tool to automatically segment videos based on topic changes and analyze their content.**
 
-## Table of Contents
+This tool leverages advanced AI techniques, including audio processing, transcription, topic modeling, and visual analysis, to break down videos into meaningful segments based on shifts in conversation or subject matter. It then provides insights into each segment, including:
 
-- [Video Topic Splitter 🎬](#video-topic-splitter-)
-  - [Table of Contents](#table-of-contents)
-  - [Installation](#installation)
-  - [Quick Start](#quick-start)
-  - [System Architecture](#system-architecture)
-  - [Tech Stack](#tech-stack)
-  - [Development](#development)
-  - [Project Overview](#project-overview)
-  - [Use Cases](#use-cases)
-    - [1. IT Technical Support Analysis](#1-it-technical-support-analysis)
-    - [2. AI Agent Interaction Analysis](#2-ai-agent-interaction-analysis)
-  - [Design Philosophy](#design-philosophy)
-  - [Limitations](#limitations)
-  - [Contributing](#contributing)
-  - [License](#license)
+- **Dominant Topics:** Identifies the main subjects discussed in each segment.
+- **Keywords:** Extracts relevant keywords to summarize the content of each segment.
+- **Software Detection:** Optionally detects software applications and logos visible in the video.
+- **Gemini Analysis:** Provides detailed insights using Google's Gemini model, summarizing and explaining the content of each segment with a focus on the chosen analysis register.
+  - **IT Workflow:** Analyzes technical procedures, system commands, and software configurations.
+  - **Generative AI:** Focuses on AI models, prompt engineering, and implementation details.
+  - **Tech Support:** Identifies problem descriptions, diagnostic procedures, and resolution steps.
+
+## Features
+
+- **Automatic Segmentation:** Intelligently splits videos into topic-coherent segments.
+- **Topic Modeling:** Uses OpenRouter's phi-4 model for accurate topic identification.
+- **Transcription:** Transcribes audio using Deepgram's speech recognition API.
+- **Software Detection:** Detects the presence of software applications via OCR and logo recognition.
+- **Gemini Analysis:** Leverages Google's Gemini for detailed segment analysis.
+- **Checkpoint System:** Resumes processing from interruptions or errors.
+- **YouTube Integration:** Downloads and processes videos directly from YouTube links.
+- **Customizable Analysis:** Tailor the analysis with different registers (IT Workflow, Generative AI, Tech Support).
+- **Screenshot Analysis:** Analyze individual screenshots for software applications and get Gemini insights.
 
 ## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/video-topic-splitter.git
-cd video-topic-splitter
-
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -e .
+pip install video_topic_splitter
 ```
 
-## Quick Start
+## Usage
 
-Basic usage:
+### Basic Video Processing
+
 ```bash
-# Process a video file
-video-topic-splitter -i your_video.mp4 -o output_segments
-
-# Analyze with specific workflow
-video-topic-splitter -i tech_talk.mp4 -o tech_insights --register it-workflow
+video-topic-splitter -i <input_video_path_or_youtube_url> -o <output_directory> --topics <number_of_topics> --register <register>
 ```
 
-## System Architecture
+**Example:**
 
-The system processes videos through multiple specialized components working in sequence:
-
-```mermaid
-sequenceDiagram
-    actor User
-    participant CLI
-    participant YTD as YouTube Downloader
-    participant AP as Audio Processor
-    participant TS as Transcription Service
-    participant TA as Topic Analyzer
-    participant VA as Video Analyzer
-    participant TM as Thumbnail Manager
-
-    User->>CLI: Initiate process with options
-    activate CLI
-
-    alt YouTube URL provided
-        CLI->>YTD: Download video
-        YTD-->>CLI: Video file
-    end
-
-    CLI->>AP: Process audio
-    AP->>AP: Extract audio
-    AP->>AP: Normalize audio
-    opt If not skipped
-        AP->>AP: Remove silence
-    end
-    AP-->>CLI: Processed audio
-
-    CLI->>TS: Request transcription
-    TS-->>CLI: Transcript
-
-    CLI->>TA: Analyze topics
-    TA->>TA: Perform LDA analysis
-    TA->>TA: Identify segments
-    TA-->>CLI: Topic analysis results
-
-    CLI->>VA: Analyze video content
-    VA->>VA: Detect software logos
-    VA->>VA: Perform OCR on frames
-    VA->>VA: Analyze frame content
-    VA-->>CLI: Video analysis results
-
-    CLI->>TM: Generate thumbnails
-    TM->>TM: Extract key frames
-    TM->>TM: Create thumbnails
-    TM-->>CLI: Thumbnail set
-
-    CLI-->>User: Complete analysis results
-    deactivate CLI
+```bash
+video-topic-splitter -i "https://www.youtube.com/watch?v=dQw4w9WgXcQ" -o output --topics 5 --register it-workflow 
 ```
 
-## Tech Stack
+### Transcribe Only
 
-- **Transcription**: Deepgram & Groq APIs for speech-to-text
-- **Visual Analysis**: Google's Gemini for frame analysis
-- **Topic Modeling**: OpenRouter's phi-4 model
-- **Audio Processing**: FFmpeg for audio extraction and normalization
-- **OCR**: Tesseract for text extraction from frames
-- **Core**: Python with extensive use of async/await for performance
-
-## Development
-
-Support workflow integration:
-
-```mermaid
-flowchart TD
-    A[Support Request Received] --> B{Is Video Analysis Required?}
-    B -->|No| C[Standard Support Process]
-    B -->|Yes| D[Initiate Video Analysis]
-    D --> E[Run Video Processing Sequence]
-    
-    subgraph "Video Processing Sequence"
-    E1[Download Video if URL] --> E2[Process Audio]
-    E2 --> E3[Transcribe Audio]
-    E3 --> E4[Analyze Topics]
-    E4 --> E5[Analyze Video Content]
-    E5 --> E6[Generate Thumbnails]
-    end
-    
-    E --> F[Review Analysis Results]
-    F --> G{Is Further Action Needed?}
-    G -->|Yes| H[Assign to Specialist]
-    G -->|No| I[Update Knowledge Base]
-    H --> J[Resolve Issue]
-    I --> K[Close Support Ticket]
-    J --> K
-    C --> K
+```bash
+video-topic-splitter -i <input_video_path> -o <output_directory> --transcribe-only
 ```
 
-## Project Overview
+### Analyze Screenshot
 
-Video Topic Splitter is designed to transform complex video content into structured, navigable segments. It combines multiple AI technologies to understand and analyze multimedia content effectively, making it particularly valuable for technical content and educational materials.
+```bash
+video-topic-splitter -i <image_path> -o <output_directory> --analyze-screenshot --screenshot-context "This is a screenshot of a user configuring a firewall." --software-list software_list.txt --logo-db logos/
+```
 
-The system provides:
-- Accurate speech-to-text conversion
-- Intelligent topic segmentation
-- Visual content analysis
-- Automated thumbnail generation
-- Structured output for knowledge base integration
+### Advanced Options
 
-## Use Cases
+- `--api`: Choose between `deepgram` (default) or `groq` for transcription.
+- `--skip-unsilence`: Skip silence removal during audio preprocessing.
+- `--software-list <path>`: Provide a text file with a list of software to detect (one per line).
+- `--logo-db <path>`: Specify a directory containing logo template images for software detection.
+  - Logo images should be named `<software_name>.png` (e.g., `firefox.png`, `vscode.png`).
+- `--ocr-lang <language_code>`: Set the language for OCR (default: `eng`).
+- `--logo-threshold <0.0-1.0>`: Adjust the confidence threshold for logo detection (default: 0.8).
+- `--thumbnail-interval <seconds>`: Set the interval for generating thumbnails (default: 5).
+- `--max-thumbnails <number>`: Limit the maximum number of thumbnails per segment (default: 5).
+- `--min-thumbnail-confidence`: Minimum confidence for thumbnail-based software detection before analyzing more frames.
 
-### 1. IT Technical Support Analysis
+## Project Structure
 
-- Detailed error diagnosis and pattern recognition
-- Solution trajectory mapping
-- Procedural knowledge preservation
-- Diagnostic step tracking
+The tool creates a project folder for each video processed, containing:
 
-### 2. AI Agent Interaction Analysis
+- `audio/`: Extracted and processed audio files.
+- `segments/`: Video segments generated based on topic changes.
+- `thumbnails/`: Thumbnail images extracted from segments.
+- `transcription.json`: Raw transcription data.
+- `transcript.json`: Processed transcript with sentence segmentation.
+- `results.json`: Final results including topic analysis, keywords, and segment metadata.
+- `checkpoint.pkl`: Checkpoint file to resume processing.
 
-- Prompt engineering pattern detection
-- Model response characterization
-- Interaction pattern analysis
-- Performance evaluation
+## Configuration
 
-## Design Philosophy
+- **API Keys:** Set the following environment variables with your API keys:
+  - `DG_API_KEY` (Deepgram)
+  - `GROQ_API_KEY` (Groq)
+  - `GEMINI_API_KEY` (Google Gemini)
+  - `OPENROUTER_API_KEY` (OpenRouter)
 
-The Video Topic Splitter approaches multimedia analysis through three core principles:
+## Dockerized Deployment
 
-1. **Intelligent Segmentation**: Content is analyzed not just for transitions, but for meaningful topic boundaries and context shifts.
+To simplify deployment and dependency management, the Video Topic Splitter can be run within a Docker container.  We provide a `Dockerfile` and `docker-compose.yml` to facilitate this process.
 
-2. **Multi-Modal Understanding**: Combines audio transcription, visual analysis, and topic modeling for comprehensive content understanding.
+### Docker Compose Setup
 
-3. **Knowledge Transformation**: Transforms raw video content into structured, actionable documentation and insights.
+The provided `docker-compose.yml` sets up two services:
 
-## Limitations
+- **`video-processor`**: This service builds the Video Topic Splitter image and runs the application. It mounts the `./data` directory to `/app/data` inside the container for persistent storage of project data.  It also defines environment variables for required API keys and depends on a Redis service for caching.
+- **`redis`**: This service runs a Redis instance for caching analysis results, improving performance.  It exposes port 6389 on the host machine and uses a named volume `redis_data` for data persistence.
 
-Current limitations of the system:
+**1. Configure Environment Variables:**
 
-- Complex technical discussions may challenge topic boundary detection
-- Visual analysis accuracy depends on video quality
-- Processing time scales with video length
-- Some specialized technical terminology may require domain-specific training
+Create a `.env` file in the root of the project and set the required API keys:
 
-Version: 0.3
+```bash
+DEEPGRAM_API_KEY=YOUR_DEEPGRAM_API_KEY
+GEMINI_API_KEY=YOUR_GEMINI_API_KEY
+OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY
+```
+
+**2. Build and Run:**
+
+```bash
+docker-compose up --build
+```
+
+This command will build the `video-processor` image, pull the Redis image, and start both containers.  The application will be accessible inside the `video-processor` container.
+
+**3. Usage within Docker:**
+
+You can then run the `video-topic-splitter` command inside the running container:
+
+```bash
+docker exec -it video-processor video-topic-splitter -i /app/data/input.mp4 -o /app/data/output
+```
+
+Replace `/app/data/input.mp4` with the path to your input video file *inside* the container (mounted from your `./data` directory). Output will be saved to `/app/data/output` inside the container, which corresponds to `./data/output` on your host machine.
+
+### Dockerfile Explanation
+
+The `Dockerfile` uses the `linuxserver/ffmpeg` image as a base, providing pre-installed FFmpeg and related tools. Key steps include:
+
+- Installing system dependencies (Python, pip, build tools, Tesseract OCR).
+- Creating a dedicated user `vts` for security.
+- Copying the application code into the container.
+- Installing Python dependencies using `pip`.
+- Setting the entrypoint to run the `video-topic-splitter` command.  The Dockerfile now uses a bash entrypoint to allow for dynamic command execution.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit pull requests with improvements or bug fixes.
+This is an exercise in using Large Language Models to craft an applicatio using Python.
 
 ## License
 
-MIT License - See LICENSE file for details.
-
----
-
-_Built with precision for technical content analysis_
+[MIT License](LICENSE)
