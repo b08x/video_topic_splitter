@@ -9,6 +9,7 @@ from deepgram import DeepgramClient, PrerecordedOptions, FileSource, DeepgramErr
 from groq import Groq
 
 from .constants import CHECKPOINTS
+
 def transcribe_file_deepgram(client, file_path, options, max_retries=3, retry_delay=5):
     """Transcribe audio file using Deepgram API."""
     print("Transcribing audio using Deepgram...")
