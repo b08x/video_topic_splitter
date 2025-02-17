@@ -8,6 +8,10 @@
   - [Table of Contents](#table-of-contents)
   - [About 📖](#about-)
   - [Features ✨](#features-)
+  - [Use Cases](#use-cases)
+    - [1. IT Technical Support Analysis](#1-it-technical-support-analysis)
+    - [2. AI Agent Interaction Analysis](#2-ai-agent-interaction-analysis)
+  - [Tech Stack](#tech-stack)
   - [Installation 💾](#installation-)
   - [Usage 💻](#usage-)
     - [Basic Video Processing](#basic-video-processing)
@@ -45,6 +49,31 @@ This tool leverages advanced AI techniques, including audio processing, transcri
 - **YouTube Integration:** Downloads and processes videos directly from YouTube links.
 - **Customizable Analysis:** Tailor the analysis with different registers (IT Workflow, Generative AI, Tech Support).
 - **Screenshot Analysis:** Analyze individual screenshots for software applications and get Gemini insights.
+
+## Use Cases
+
+### 1. IT Technical Support Analysis
+
+- Detailed error diagnosis and pattern recognition
+- Solution trajectory mapping
+- Procedural knowledge preservation
+- Diagnostic step tracking
+
+### 2. AI Agent Interaction Analysis
+
+- Prompt engineering pattern detection
+- Model response characterization
+- Interaction pattern analysis
+- Performance evaluation
+
+## Tech Stack
+
+- **Transcription**: Deepgram & Groq APIs for speech-to-text
+- **Visual Analysis**: Google's Gemini for frame analysis
+- **Topic Modeling**: OpenRouter's phi-4 model
+- **Audio Processing**: FFmpeg for audio extraction and normalization
+- **OCR**: Tesseract for text extraction from frames
+- **Core**: Python with extensive use of async/await for performance
 
 ## Installation 💾
 
