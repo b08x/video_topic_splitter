@@ -153,38 +153,61 @@ def analyze_screenshot(
 def split_and_analyze_video(
     input_video,
     segments,
-    output_dir,
+    project_path,
     software_list=None,
     logo_db_path=None,
     ocr_lang="eng",
     logo_threshold=0.8,
-    thumbnail_interval=5,
-    max_thumbnails=5,
-    min_thumbnail_confidence=0.7,
+    quality_threshold=0.5,
+    save_format="jpg",
+    compression_quality=85,
     register="it-workflow",
 ):
-    """Split video into segments and analyze each segment with checkpoint support."""
+    """Split video into segments and analyze each segment with checkpoint support.
+
+    Args:
+        input_video: Path to input video file
+        segments: List of transcript segments
+        project_path: Path to project directory
+        software_list: Optional list of software names to detect
+        logo_db_path: Optional path to logo database directory
+        ocr_lang: Language for OCR detection
+        logo_threshold: Confidence threshold for logo detection
+        quality_threshold: Threshold for frame quality assessment (0-1)
+        save_format: Format to save screenshots (jpg/png)
+        compression_quality: JPEG compression quality (1-100)
+        register: Analysis register (it-workflow, gen-ai, tech-support)
+
+    Returns:
+        List of analyzed segments with visual summaries
+    """
     print(f"Analyzing video: {input_video}")
     print("Splitting video into segments and analyzing...")
 
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
+    # Create output directories
+    os.makedirs(project_path, exist_ok=True)
+    segments_dir = os.path.join(project_path, "segments")
+    os.makedirs(segments_dir, exist_ok=True)
 
     # Load any previously analyzed segments
-    analyzed_segments = load_analyzed_segments(output_dir)
+    analyzed_segments = load_analyzed_segments(segments_dir)
 
     # Create a map of existing analyses by segment_id
     existing_analyses = {seg["segment_id"]: seg for seg in analyzed_segments}
 
     try:
-        # Initialize the contextual frame analyzer
+        # Initialize the contextual frame analyzer with screenshot support
         frame_analyzer = ContextualFrameAnalyzer(
-            input_video,
-            segments,
-            software_list,
-            logo_db_path,
-            ocr_lang,
-            logo_threshold,
+            video_path=input_video,
+            transcript_segments=segments,
+            project_path=project_path,
+            software_list=software_list,
+            logo_db_path=logo_db_path,
+            ocr_lang=ocr_lang,
+            logo_threshold=logo_threshold,
+            quality_threshold=quality_threshold,
+            save_format=save_format,
+            compression_quality=compression_quality,
         )
 
         total_segments = len(segments)
@@ -192,7 +215,8 @@ def split_and_analyze_video(
 
         for i, segment in enumerate(progressbar.progressbar(segments)):
             segment_id = i + 1
-            output_path = os.path.join(output_dir, f"segment_{segment_id}.mp4")
+            segment_dir = os.path.join(segments_dir, f"segment_{segment_id}")
+            os.makedirs(segment_dir, exist_ok=True)
 
             # Skip if this segment has already been fully processed
             if segment_id in existing_analyses:
@@ -200,38 +224,49 @@ def split_and_analyze_video(
                 continue
 
             try:
-                # Extract and save the segment
-                if not os.path.exists(output_path):
-                    video = VideoFileClip(input_video)
-                    start_time = segment["start_time"]
-                    end_time = segment["end_time"]
-                    segment_clip = video.subclip(start_time, end_time)
-                    segment_clip.write_videofile(
-                        output_path,
-                        codec="libx264",
-                        audio_codec="aac",
-                        fps=video.fps or 24,
-                        verbose=False,
-                        logger=None,
-                    )
-                    video.close()
-
                 # Analyze the segment with contextual frame analysis
                 analysis_result = frame_analyzer.analyze_segment(segment)
 
+                # Extract visual summary information
+                visual_summary = analysis_result.get("visual_summary", {})
+                screenshot_paths = visual_summary.get("screenshot_paths", [])
+
+                # Save checkpoint for this segment
+                segment_checkpoint = {
+                    "segment_id": segment_id,
+                    "analysis": analysis_result,
+                    "screenshots": screenshot_paths,
+                }
+                save_checkpoint(
+                    project_path, f"SEGMENT_{segment_id}_ANALYZED", segment_checkpoint
+                )
+
                 # Add to our results and save immediately
                 analyzed_segments.append(analysis_result)
-                save_analyzed_segments(output_dir, analyzed_segments)
+                save_analyzed_segments(segments_dir, analyzed_segments)
 
                 print(f"\nCompleted segment {segment_id}/{total_segments}")
+                if screenshot_paths:
+                    print(f"Saved {len(screenshot_paths)} screenshots")
 
             except Exception as e:
                 print(f"\nError processing segment {segment_id}: {str(e)}")
                 # Save progress even if this segment failed
-                save_analyzed_segments(output_dir, analyzed_segments)
+                save_analyzed_segments(segments_dir, analyzed_segments)
                 continue
-
         print("\nVideo splitting and analysis complete.")
+
+        # Save final checkpoint with visual analysis results
+        save_checkpoint(
+            project_path,
+            CHECKPOINTS["VISUAL_ANALYSIS_COMPLETE"],
+            {
+                "segments": analyzed_segments,
+                "total_segments": total_segments,
+                "screenshots_dir": os.path.join(project_path, "screenshots"),
+            },
+        )
+
         return analyzed_segments
 
     except Exception as e:
@@ -239,7 +274,7 @@ def split_and_analyze_video(
         print(f"\n{error_msg}")
         logger.error(f"Detailed error during video loading or processing: {str(e)}")
         # Save whatever progress we made
-        save_analyzed_segments(output_dir, analyzed_segments)
+        save_analyzed_segments(segments_dir, analyzed_segments)
         raise RuntimeError(error_msg)
     finally:
         # Clean up frame analyzer resources
