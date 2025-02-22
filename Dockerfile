@@ -5,11 +5,6 @@ FROM linuxserver/ffmpeg:amd64-6.1.1
 LABEL maintainer="Your Name <your.email@example.com>"
 LABEL org.opencontainers.image.source="https://github.com/your-repo/video-topic-splitter"
 
-USER root
-
-RUN groupadd -g 1001 vts
-RUN useradd -ms /bin/bash -u 1000 -g 1001 vts
-
 # Install Python and other system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nano \
@@ -23,6 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
+RUN useradd -ms /usr/bin/bash -u 1001 -U vts
+    
 WORKDIR /home/vts
 
 ENV PATH="$HOME/.local/bin:${PATH}"
@@ -33,7 +30,8 @@ COPY --chown=vts:vts setup.py /home/vts/
 COPY --chown=vts:vts requirements.txt /home/vts/
 
 # Install dependencies as user
-RUN pip install --user --no-cache-dir .
+RUN pip install --no-cache-dir . && \
+    chown -R vts:vts /home/vts
 
 # Set entrypoint (using -m for correct module resolution)
 # ENTRYPOINT ["python3", "-m", "video_topic_splitter.cli"]
