@@ -14,11 +14,13 @@ from PIL import Image, UnidentifiedImageError
 from ..api.gemini import analyze_with_gemini
 from ..constants import CHECKPOINTS
 from ..processing.ocr.ocr_detection import detect_software_names
+from ..processing.software.software_detection import detect_software_logos
 from ..project import save_checkpoint
 from ..prompt_templates import get_analysis_prompt
 from .frame_analysis import ContextualFrameAnalyzer
 
 logger = logging.getLogger(__name__)
+
 
 def load_analyzed_segments(segments_dir):
     """Load any previously analyzed segments."""
@@ -28,57 +30,17 @@ def load_analyzed_segments(segments_dir):
             return json.load(f)
     return []
 
+
 def save_analyzed_segments(segments_dir, analyzed_segments):
     """Save the current state of analyzed segments."""
     analysis_file = os.path.join(segments_dir, "analyzed_segments.json")
     with open(analysis_file, "w") as f:
         json.dump(analyzed_segments, f, indent=2)
 
-def detect_software_logos(frame, software_list=None, logo_db_path=None, threshold=0.8):
-    """Analyze a frame for software logos using template matching."""
-    results = []
-
-    if not software_list or not logo_db_path or not os.path.exists(logo_db_path):
-        return results
-
-    for software in software_list:
-        # Look for logo template files
-        logo_path = os.path.join(logo_db_path, f"{software.lower()}.png")
-        if not os.path.exists(logo_path):
-            continue
-
-        try:
-            # Read and match template
-            template = cv2.imread(logo_path)
-            if template is None:
-                continue
-
-            # Convert both to grayscale
-            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            gray_template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-
-            # Template matching
-            result = cv2.matchTemplate(gray_frame, gray_template, cv2.TM_CCOEFF_NORMED)
-
-            # Get matches above threshold
-            locations = np.where(result >= threshold)
-            for pt in zip(*locations[::-1]):  # Switch columns and rows
-                results.append(
-                    {
-                        "software": software,
-                        "confidence": float(result[pt[1]][pt[0]]),
-                        "location": {"x": int(pt[0]), "y": int(pt[1])},
-                    }
-                )
-
-        except Exception as e:
-            logger.error(f"Error matching logo for {software}: {str(e)}")
-            continue
-
-    return results
 
 # Configure paths
 LOGO_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "logos")
+
 
 def analyze_screenshot(
     image_path,
@@ -187,6 +149,7 @@ def analyze_screenshot(
             "software_detections": [],
         }
 
+
 def split_and_analyze_video(
     input_video,
     segments,
@@ -280,5 +243,5 @@ def split_and_analyze_video(
         raise RuntimeError(error_msg)
     finally:
         # Clean up frame analyzer resources
-        if 'frame_analyzer' in locals():
+        if "frame_analyzer" in locals():
             frame_analyzer.close()

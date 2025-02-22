@@ -12,9 +12,10 @@ from PIL import Image
 
 from ..api.gemini import analyze_with_gemini
 from ..processing.ocr.ocr_detection import detect_software_names
-from .visual_analysis import detect_software_logos
+from ..processing.software.software_detection import detect_software_logos
 
 logger = logging.getLogger(__name__)
+
 
 class ContextualFrameAnalyzer:
     """Handles frame extraction and analysis with transcript context."""
@@ -29,7 +30,7 @@ class ContextualFrameAnalyzer:
         logo_threshold: float = 0.8,
     ):
         """Initialize the analyzer.
-        
+
         Args:
             video_path: Path to the video file
             transcript_segments: List of transcript segments with timestamps
@@ -50,11 +51,11 @@ class ContextualFrameAnalyzer:
         self, segment: Dict, num_internal_frames: int = 3
     ) -> List[Dict]:
         """Extract frames from a segment at key points.
-        
+
         Args:
             segment: Transcript segment with start/end times
             num_internal_frames: Number of frames to extract within segment
-        
+
         Returns:
             List of frame information dictionaries
         """
@@ -77,13 +78,15 @@ class ContextualFrameAnalyzer:
         # Remove any None values from failed extractions
         return [f for f in frames if f is not None]
 
-    def _extract_frame_at_time(self, timestamp: float, frame_type: str) -> Optional[Dict]:
+    def _extract_frame_at_time(
+        self, timestamp: float, frame_type: str
+    ) -> Optional[Dict]:
         """Extract a single frame at a specific timestamp.
-        
+
         Args:
             timestamp: Video timestamp in seconds
             frame_type: Type of frame (segment_start, segment_end, internal)
-        
+
         Returns:
             Frame information dictionary or None if extraction fails
         """
@@ -95,16 +98,16 @@ class ContextualFrameAnalyzer:
 
             # Extract frame
             frame = self.video.get_frame(timestamp)
-            
+
             # Convert to format needed for analysis
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            
+
             frame_info = {
                 "timestamp": timestamp,
                 "frame_type": frame_type,
                 "frame": frame_rgb,
             }
-            
+
             # Cache the frame info
             self.frame_cache[cache_key] = frame_info
             return frame_info
@@ -120,12 +123,12 @@ class ContextualFrameAnalyzer:
         previous_analysis: Optional[Dict] = None,
     ) -> Dict:
         """Analyze a frame with transcript and topic context.
-        
+
         Args:
             frame_info: Frame information dictionary
             segment_context: Segment context including transcript and topic
             previous_analysis: Optional previous frame analysis results
-        
+
         Returns:
             Analysis results dictionary
         """
@@ -172,13 +175,13 @@ class ContextualFrameAnalyzer:
         previous_analysis: Optional[Dict],
     ) -> str:
         """Build context string for frame analysis.
-        
+
         Args:
             frame_info: Frame information
             segment_context: Segment context
             software_analysis: Software detection results
             previous_analysis: Previous frame analysis if available
-        
+
         Returns:
             Context string for analysis
         """
@@ -217,20 +220,20 @@ class ContextualFrameAnalyzer:
 
     def analyze_segment(self, segment: Dict) -> Dict:
         """Analyze all frames for a segment.
-        
+
         Args:
             segment: Transcript segment information
-        
+
         Returns:
             Segment analysis results
         """
         # Extract frames for the segment
         frames = self.extract_segment_frames(segment)
-        
+
         # Analyze each frame with context
         frame_analyses = []
         previous_analysis = None
-        
+
         for frame_info in frames:
             analysis = self.analyze_frame_with_context(
                 frame_info, segment, previous_analysis
