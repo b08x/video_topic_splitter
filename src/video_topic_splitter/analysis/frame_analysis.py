@@ -56,7 +56,7 @@ class ContextualFrameAnalyzer:
         self.ocr_lang = ocr_lang
         self.logo_threshold = logo_threshold
         self.quality_threshold = quality_threshold
-        self.save_format = save_format()
+        self.save_format = save_format
         self.compression_quality = compression_quality
         self.frame_cache = {}  # Cache analyzed frames to avoid reprocessing
 
