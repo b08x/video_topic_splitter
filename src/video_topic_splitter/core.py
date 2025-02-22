@@ -1,11 +1,10 @@
-# core.py
 #!/usr/bin/env python3
 """Core processing functionality for video topic splitter."""
 
 import json
 import os
 
-from deepgram import DeepgramClient, PrerecordedOptions  # will be removed
+from deepgram import DeepgramClient, PrerecordedOptions
 from dotenv import load_dotenv
 from groq import Groq
 
@@ -13,20 +12,14 @@ from .analysis.topic_modeling import process_transcript
 from .analysis.visual_analysis import split_and_analyze_video
 from .api.deepgram import transcribe_file_deepgram
 from .constants import CHECKPOINTS
-from .processing.audio.audio import extract_audio  # Corrected import path
+from .processing.audio.audio import extract_audio
 from .processing.audio.audio import (convert_to_mono_and_resample,
-                                     normalize_audio, remove_silence)
+                                   normalize_audio, remove_silence)
 from .project import save_checkpoint
-from .prompt_templates import get_analysis_prompt, get_topic_prompt
-from .transcription import (  # if transcription.py is still used. Otherwise, remove.
-    load_transcript, save_transcript, save_transcription)
+from .transcription import (load_transcript, save_transcript, save_transcription)
 from .utils.youtube import download_video
 
-# from .api.gemini import analyze_with_gemini # not directly used here
-
-
 load_dotenv()
-
 
 def handle_audio_video(video_path, project_path, skip_unsilence=False):
     """Process audio from video file with checkpointing and file existence checks."""
@@ -43,9 +36,7 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
     mono_resampled_audio_path = os.path.join(audio_dir, "mono_resampled_audio.m4a")
 
     # Check for existing processed files
-    if os.path.exists(unsilenced_video_path) and os.path.exists(
-        mono_resampled_audio_path
-    ):
+    if os.path.exists(unsilenced_video_path) and os.path.exists(mono_resampled_audio_path):
         print("Found existing processed audio files. Using cached versions.")
         return unsilenced_video_path, mono_resampled_audio_path
 
@@ -65,20 +56,16 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
     if not os.path.exists(unsilenced_video_path):
         if skip_unsilence:
             import shutil
-
             shutil.copy2(normalized_video_path, unsilenced_video_path)
             print("Skipping silence removal as requested.")
         else:
-            silence_removal_result = remove_silence(
-                normalized_video_path, unsilenced_video_path
-            )
+            silence_removal_result = remove_silence(normalized_video_path, unsilenced_video_path)
             if silence_removal_result["status"] == "error":
-                print(
-                    f"Error during silence removal: {silence_removal_result['message']}"
-                )
+                print(f"Error during silence removal: {silence_removal_result['message']}")
                 raise RuntimeError("Silence removal failed")
             else:
                 print(silence_removal_result["message"])
+
     # Extract audio if needed
     if not os.path.exists(raw_audio_path):
         print("Extracting audio from video...")
@@ -92,9 +79,7 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
     # Convert to mono and resample if needed
     if not os.path.exists(mono_resampled_audio_path):
         print("Converting audio to mono and resampling...")
-        conversion_result = convert_to_mono_and_resample(
-            raw_audio_path, mono_resampled_audio_path
-        )
+        conversion_result = convert_to_mono_and_resample(raw_audio_path, mono_resampled_audio_path)
         if conversion_result["status"] == "error":
             print(f"Error during audio conversion: {conversion_result['message']}")
             raise RuntimeError("Audio conversion failed")
@@ -104,9 +89,7 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
         print("Using existing mono resampled audio file.")
 
     # Save checkpoint only if we've successfully processed everything
-    if os.path.exists(unsilenced_video_path) and os.path.exists(
-        mono_resampled_audio_path
-    ):
+    if os.path.exists(unsilenced_video_path) and os.path.exists(mono_resampled_audio_path):
         save_checkpoint(
             project_path,
             CHECKPOINTS["AUDIO_PROCESSED"],
@@ -119,7 +102,6 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
 
     return unsilenced_video_path, mono_resampled_audio_path
 
-
 def handle_transcription(
     video_path,
     audio_path,
@@ -131,12 +113,9 @@ def handle_transcription(
     logo_db_path=None,
     ocr_lang="eng",
     logo_threshold=0.8,
-    thumbnail_interval=5,
-    max_thumbnails=5,
-    min_thumbnail_confidence=0.7,
     register="it-workflow",
 ):
-    """Handle transcription of video/audio content."""
+    """Handle transcription and analysis of video/audio content."""
     segments_dir = os.path.join(project_path, "segments")
     os.makedirs(segments_dir, exist_ok=True)
 
@@ -173,9 +152,7 @@ def handle_transcription(
                 filler_words=True,
                 sentiment=True,
             )
-            transcription = transcribe_file_deepgram(
-                deepgram_client, audio_path, deepgram_options
-            )
+            transcription = transcribe_file_deepgram(deepgram_client, audio_path, deepgram_options)
             transcript = [
                 {
                     "content": utterance["transcript"],
@@ -184,27 +161,20 @@ def handle_transcription(
                 }
                 for utterance in transcription["results"]["utterances"]
             ]
-        else:  # Groq - To be implemented in future if needed, for now focus on deepgram refactor
-            raise ValueError(
-                f"API '{api}' is not currently supported in refactored version."
-            )
+        else:
+            raise ValueError(f"API '{api}' is not currently supported in refactored version.")
 
-        save_transcription(
-            transcription, project_path
-        )  # Corrected import path, transcription import will be removed
-        save_transcript(
-            transcript, project_path
-        )  # Corrected import path, transcription import will be removed
+        save_transcription(transcription, project_path)
+        save_transcript(transcript, project_path)
 
     save_checkpoint(
         project_path, CHECKPOINTS["TRANSCRIPTION_COMPLETE"], {"transcript": transcript}
     )
 
-    results = process_transcript(
-        transcript, project_path, num_topics, register=register
-    )
+    # Process transcript for topic modeling
+    results = process_transcript(transcript, project_path, num_topics, register=register)
 
-    # Split the video and analyze segments
+    # Split and analyze video with frame extraction at transcript timestamps
     try:
         analyzed_segments = split_and_analyze_video(
             video_path,
@@ -214,9 +184,6 @@ def handle_transcription(
             logo_db_path,
             ocr_lang,
             logo_threshold,
-            thumbnail_interval,
-            max_thumbnails,
-            min_thumbnail_confidence,
             register=register,
         )
 
@@ -233,9 +200,7 @@ def handle_transcription(
         print(f"Error during video analysis: {str(e)}")
         # Load any segments that were successfully analyzed
         try:
-            analyzed_segments = split_and_analyze_video(
-                video_path, [], segments_dir
-            )  # Just load existing
+            analyzed_segments = split_and_analyze_video(video_path, [], segments_dir)
             results["analyzed_segments"] = analyzed_segments
             print(f"Recovered {len(analyzed_segments)} previously analyzed segments")
         except Exception as load_error:
@@ -251,7 +216,6 @@ def handle_transcription(
 
     return results
 
-
 def process_video(
     video_path,
     project_path,
@@ -265,29 +229,19 @@ def process_video(
     logo_db_path=None,
     ocr_lang="eng",
     logo_threshold=0.8,
-    thumbnail_interval=5,
-    max_thumbnails=5,
-    min_thumbnail_confidence=0.7,
     register="it-workflow",
 ):
     """Main video processing pipeline."""
-
-    from video_topic_splitter.project import \
-        load_checkpoint  # Corrected import pat
+    from video_topic_splitter.project import load_checkpoint
 
     checkpoint = load_checkpoint(project_path)
 
     # Handle YouTube video download if needed
     if is_youtube_url:
-        if (
-            checkpoint is None
-            or checkpoint["stage"] < CHECKPOINTS["YOUTUBE_DOWNLOAD_COMPLETE"]
-        ):
+        if checkpoint is None or checkpoint["stage"] < CHECKPOINTS["YOUTUBE_DOWNLOAD_COMPLETE"]:
             print("Downloading YouTube video...")
             download_path = os.path.join(project_path, "source_video.mp4")
-            result = download_video(
-                video_path, download_path, project_path
-            )  # Pass project_path for thumbnail download
+            result = download_video(video_path, download_path, project_path)
 
             if result["status"] == "error":
                 raise RuntimeError(f"YouTube download failed: {result['message']}")
@@ -356,17 +310,11 @@ def process_video(
                         }
                         for utterance in transcription["results"]["utterances"]
                     ]
-                else:  # Groq - To be implemented in future if needed, for now focus on deepgram refactor
-                    raise ValueError(
-                        f"API '{api}' is not currently supported in refactored version."
-                    )
+                else:
+                    raise ValueError(f"API '{api}' is not currently supported in refactored version.")
 
-                save_transcription(
-                    transcription, project_path
-                )  # Corrected import path, transcription import will be removed
-                save_transcript(
-                    transcript, project_path
-                )  # Corrected import path, transcription import will be removed
+                save_transcription(transcription, project_path)
+                save_transcript(transcript, project_path)
 
             results = {"transcript": transcript, "transcription_only": True}
             save_checkpoint(
@@ -386,9 +334,6 @@ def process_video(
                 logo_db_path,
                 ocr_lang,
                 logo_threshold,
-                thumbnail_interval,
-                max_thumbnails,
-                min_thumbnail_confidence,
                 register,
             )
     else:
