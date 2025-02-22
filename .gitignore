@@ -7,3 +7,6 @@ video_topic_splitter.json
 *.wav
 video_topic_splitter.code-workspace
 .vscode
+run.sh
+pyproject.toml
+notebooks/ffmpeg-numpy.ipynb
