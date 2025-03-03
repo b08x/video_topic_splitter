@@ -61,10 +61,21 @@ def detect_scenes(
         fps = video.frame_rate
         scene_boundaries = []
 
+        logger.info(f"Scene list type: {type(scene_list)}, length: {len(scene_list)}")
+        if scene_list:
+            logger.info(
+                f"First scene type: {type(scene_list[0])}, value: {scene_list[0]}"
+            )
+
         for scene in scene_list:
             start_frame, end_frame = scene
-            start_time = start_frame / fps
-            end_time = end_frame / fps
+            logger.info(
+                f"Frame types: start_frame={type(start_frame)}, end_frame={type(end_frame)}"
+            )
+
+            # Convert FrameTimecode objects to float seconds
+            start_time = start_frame.get_seconds()
+            end_time = end_frame.get_seconds()
             scene_boundaries.append((start_time, end_time))
 
         # Save scene list to CSV
