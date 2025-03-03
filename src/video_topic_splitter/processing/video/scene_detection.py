@@ -140,9 +140,15 @@ def extract_scene_frames(
         # Extract frames
         logger.info(f"Extracting {num_frames_per_scene} frame(s) per scene...")
 
+        # Add debug logging
+        logger.info(f"Video object type: {type(video)}")
+        logger.info(f"Video object attributes: {dir(video)}")
+
         # Use PySceneDetect's save_images function
+        # In newer versions of PySceneDetect, we should pass the video object directly
+        # instead of accessing a .cap attribute
         image_filenames = save_images(
-            video.cap,
+            video,  # Pass the video object directly, not video.cap
             scene_list,
             output_dir,
             num_images=num_frames_per_scene,
