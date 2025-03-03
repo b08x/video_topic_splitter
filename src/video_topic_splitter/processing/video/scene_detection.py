@@ -35,17 +35,20 @@ def detect_scenes(
         List of scene boundaries as (start_time, end_time) in seconds
     """
     try:
+        # Open video first to get frame rate
+        video = open_video(video_path)
+
+        # Convert min_scene_len from seconds to frames
+        min_scene_len_frames = int(min_scene_len * video.frame_rate)
+
         # Create scene and stats manager
         stats_manager = StatsManager()
         scene_manager = SceneManager(stats_manager)
 
-        # Add content detector
+        # Add content detector with min_scene_len in frames
         scene_manager.add_detector(
-            ContentDetector(threshold=threshold, min_scene_len=min_scene_len)
+            ContentDetector(threshold=threshold, min_scene_len=min_scene_len_frames)
         )
-
-        # Open video
-        video = open_video(video_path)
 
         # Detect scenes
         logger.info(f"Detecting scenes in {video_path}...")
