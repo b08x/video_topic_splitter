@@ -144,19 +144,44 @@ def extract_scene_frames(
         logger.info(f"Video object type: {type(video)}")
         logger.info(f"Video object attributes: {dir(video)}")
 
-        # Use PySceneDetect's save_images function
-        # In newer versions of PySceneDetect, we should pass the video object directly
-        # instead of accessing a .cap attribute
-        image_filenames = save_images(
-            video,  # Pass the video object directly, not video.cap
-            scene_list,
-            output_dir,
-            num_images=num_frames_per_scene,
-            image_extension="jpg",
-            image_name_template="scene-$SCENE_NUMBER-$IMAGE_NUMBER",
-            quality=jpg_quality,
-            show_progress=True,
-        )
+        # From the debug output, we can see the video object has a 'capture' attribute
+        # which is likely what save_images expects
+
+        # Check PySceneDetect version to handle API changes
+        import scenedetect
+
+        logger.info(f"PySceneDetect version: {scenedetect.__version__}")
+
+        try:
+            # Use PySceneDetect's save_images function with the correct parameters
+            # Based on the error, there seems to be a conflict with the num_images parameter
+            image_filenames = save_images(
+                video.capture,  # Use the capture attribute instead
+                scene_list,
+                output_dir,
+                num_images=num_frames_per_scene,
+                image_extension="jpg",
+                image_name_template="scene-$SCENE_NUMBER-$IMAGE_NUMBER",
+                quality=jpg_quality,
+                show_progress=True,
+            )
+        except TypeError as e:
+            # If that fails, try an alternative approach based on the error message
+            logger.info(
+                f"First save_images attempt failed: {str(e)}, trying alternative approach"
+            )
+
+            # Try with positional arguments only for the first few parameters
+            image_filenames = save_images(
+                video.capture,
+                scene_list,
+                output_dir,
+                num_frames_per_scene,  # Positional instead of keyword
+                image_extension="jpg",
+                image_name_template="scene-$SCENE_NUMBER-$IMAGE_NUMBER",
+                quality=jpg_quality,
+                show_progress=True,
+            )
 
         # Create scene information with frame paths
         scene_info = []
