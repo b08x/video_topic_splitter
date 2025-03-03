@@ -57,6 +57,7 @@ This makes it ideal for analyzing recordings of technical tutorials, meetings, p
 - **YouTube URL Support:**  Downloads and processes videos directly from YouTube links.
 - **Customizable Analysis Registers:**  Tailor the analysis to specific domains (IT, AI, support) for more relevant insights.
 - **Screenshot Analysis Mode:**  Analyzes individual screenshots for software and content, separate from full video processing.
+- **Progress Visualization:**  Visual progress bars for scene detection and frame extraction processes, providing real-time feedback during processing.
 
 ## Use Cases
 
@@ -176,7 +177,8 @@ The core processing logic resides in `video_topic_splitter.core.process_video`. 
 - **Transcription (Deepgram or Groq):** The processed audio (`mono_resampled_audio.m4a`) is transcribed using either the Deepgram API (default) or the Groq API.  The raw transcription and a processed version (segmented into sentences with timestamps) are saved to JSON files (`transcription.json` and `transcript.json`).
 - **Topic Modeling (OpenRouter's phi-4):** If `--transcribe-only` is *not* used, the `TopicAnalyzer` class (in `video_topic_splitter.analysis.topic_modeling.py`) analyzes the transcript using OpenRouter's `microsoft/phi-4` model.  It identifies topic shifts and generates segment metadata (start/end times, dominant topic, keywords).  This uses TF-IDF similarity and a configurable threshold to detect topic changes.  Asynchronous calls to the OpenRouter API are used for performance.
 - **Visual Analysis (`split_and_analyze_video`):** The video is split into segments based on the topic boundaries. For each segment:
-  - Key frames are extracted (start, end, and a configurable number of internal frames).
+  - Scene detection is performed with real-time progress visualization, providing feedback during processing.
+  - Key frames are extracted (start, end, and a configurable number of internal frames) with progress bar feedback.
   - Frame quality is assessed.
   - Software logos are detected using template matching with OpenCV (`detect_software_logos`).
   - OCR is performed using `pytesseract` to detect text (`detect_software_names`).
