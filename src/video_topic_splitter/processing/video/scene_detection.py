@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Scene detection functionality using PySceneDetect."""
 
+import csv
 import logging
 import os
 from typing import Dict, List, Optional, Tuple
@@ -21,6 +22,7 @@ def detect_scenes(
     output_dir: str,
     min_scene_len: float = 1.0,
     threshold: int = 27,
+    scene_list_path: Optional[str] = None,
 ) -> List[Tuple[float, float]]:
     """
     Detect scenes in a video using PySceneDetect's content detector.
@@ -30,10 +32,39 @@ def detect_scenes(
         output_dir: Directory to save scene information
         min_scene_len: Minimum scene length in seconds
         threshold: Threshold for content detector (lower is more sensitive)
+        scene_list_path: Optional path to a CSV file containing a pre-existing scene list.
 
     Returns:
         List of scene boundaries as (start_time, end_time) in seconds
     """
+    scene_boundaries: List[Tuple[float, float]] = []
+    if scene_list_path:
+        try:
+            import csv
+
+            with open(scene_list_path, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                next(reader)  # Skip header row
+                for row in reader:
+                    try:
+                        start_time = float(row[3])  # Start Time (sec)
+                        end_time = float(row[4])  # End Time (sec)
+                        scene_boundaries.append((start_time, end_time))
+                    except (ValueError, IndexError) as e:
+                        logger.warning(
+                            f"Skipping invalid row in scene list: {row} - {str(e)}"
+                        )
+            logger.info(
+                "Loaded %s scenes from %s", len(scene_boundaries), scene_list_path
+            )
+            return scene_boundaries
+        except FileNotFoundError:
+            logger.warning("Scene list file not found: %s", scene_list_path)
+        except (Exception, csv.Error) as e:
+            logger.error(
+                "Error reading scene list from %s: %s", scene_list_path, str(e)
+            )
+
     try:
         # Open video first to get frame rate
         video = open_video(video_path)
@@ -51,7 +82,7 @@ def detect_scenes(
         )
 
         # Detect scenes
-        logger.info(f"Detecting scenes in {video_path}...")
+        logger.info("Detecting scenes in %s...", video_path)
         scene_manager.detect_scenes(video, show_progress=True)
 
         # Get scene list
@@ -59,28 +90,26 @@ def detect_scenes(
 
         # Convert frame numbers to timestamps
         fps = video.frame_rate
-        scene_boundaries = []
 
-        logger.info(f"Scene list type: {type(scene_list)}, length: {len(scene_list)}")
+        logger.info(
+            "Scene list type: %s, length: %s", type(scene_list), len(scene_list)
+        )
         if scene_list:
             logger.info(
-                f"First scene type: {type(scene_list[0])}, value: {scene_list[0]}"
+                "First scene type: %s, value: %s", type(scene_list[0]), scene_list[0]
             )
 
         for scene in scene_list:
             start_frame, end_frame = scene
             logger.info(
-                f"Frame types: start_frame={type(start_frame)}, end_frame={type(end_frame)}"
+                "Frame types: start_frame=%s, end_frame=%s",
+                type(start_frame),
+                type(end_frame),
             )
-
-            # Convert FrameTimecode objects to float seconds
-            start_time = start_frame.get_seconds()
-            end_time = end_frame.get_seconds()
-            scene_boundaries.append((start_time, end_time))
 
         # Save scene list to CSV
         csv_path = os.path.join(output_dir, "scenes.csv")
-        with open(csv_path, "w") as f:
+        with open(csv_path, "w", encoding="utf-8") as f:
             f.write(
                 "Scene,Start Frame,End Frame,Start Time (sec),End Time (sec),Duration (sec)\n"
             )
@@ -89,17 +118,18 @@ def detect_scenes(
                 end_frame = int(end_time * fps)
                 duration = end_time - start_time
                 f.write(
-                    f"{i+1},{start_frame},{end_frame},{start_time:.3f},{end_time:.3f},{duration:.3f}\n"
+                    "%s,%s,%s,%s,%s,%s\n"
+                    % (i + 1, start_frame, end_frame, start_time, end_time, duration)
                 )
 
-        logger.info(f"Detected {len(scene_boundaries)} scenes")
-        logger.info(f"Scene list saved to {csv_path}")
+        logger.info("Detected %s scenes", len(scene_boundaries))
+        logger.info("Scene list saved to %s", csv_path)
 
         return scene_boundaries
 
     except Exception as e:
-        logger.error(f"Error detecting scenes: {str(e)}")
-        raise RuntimeError(f"Scene detection failed: {str(e)}")
+        logger.error("Error detecting scenes: %s", str(e))
+        raise RuntimeError("Scene detection failed: %s", str(e)) from e
 
 
 def extract_scene_frames(
@@ -138,11 +168,11 @@ def extract_scene_frames(
             scene_list.append((start_frame, end_frame))
 
         # Extract frames
-        logger.info(f"Extracting {num_frames_per_scene} frame(s) per scene...")
+        logger.info("Extracting %s frame(s) per scene...", num_frames_per_scene)
 
         # Add debug logging
-        logger.info(f"Video object type: {type(video)}")
-        logger.info(f"Video object attributes: {dir(video)}")
+        logger.info("Video object type: %s", type(video))
+        logger.info("Video object attributes: %s", dir(video))
 
         # From the debug output, we can see the video object has a 'capture' attribute
         # which is likely what save_images expects
@@ -150,7 +180,7 @@ def extract_scene_frames(
         # Check PySceneDetect version to handle API changes
         import scenedetect
 
-        logger.info(f"PySceneDetect version: {scenedetect.__version__}")
+        logger.info("PySceneDetect version: %s", scenedetect.__version__)
 
         try:
             # Use PySceneDetect's save_images function with the correct parameters
@@ -168,7 +198,8 @@ def extract_scene_frames(
         except TypeError as e:
             # If that fails, try an alternative approach based on the error message
             logger.info(
-                f"First save_images attempt failed: {str(e)}, trying alternative approach"
+                "First save_images attempt failed: %s, trying alternative approach",
+                str(e),
             )
 
             # Try with positional arguments only for the first few parameters
@@ -199,14 +230,16 @@ def extract_scene_frames(
             )
 
         logger.info(
-            f"Extracted {sum(len(paths) for paths in image_filenames)} frames from {len(scene_boundaries)} scenes"
+            "Extracted %s frames from %s scenes",
+            sum(len(paths) for paths in image_filenames),
+            len(scene_boundaries),
         )
 
         return scene_info
 
     except Exception as e:
-        logger.error(f"Error extracting scene frames: {str(e)}")
-        raise RuntimeError(f"Frame extraction failed: {str(e)}")
+        logger.error("Error extracting scene frames: %s", str(e))
+        raise RuntimeError("Frame extraction failed: %s", str(e)) from e
 
 
 def extract_scenes_from_video(
