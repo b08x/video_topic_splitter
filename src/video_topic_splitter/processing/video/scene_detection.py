@@ -52,7 +52,7 @@ def detect_scenes(
 
         # Detect scenes
         logger.info(f"Detecting scenes in {video_path}...")
-        scene_manager.detect_scenes(video)
+        scene_manager.detect_scenes(video, show_progress=True)
 
         # Get scene list
         scene_list = scene_manager.get_scene_list()
