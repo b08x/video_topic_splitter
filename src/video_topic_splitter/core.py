@@ -129,6 +129,9 @@ def handle_transcription(
     thumbnail_interval=5,
     max_thumbnails=5,
     min_thumbnail_confidence=0.7,
+    extract_scenes=False,
+    min_scene_len=1.0,
+    frames_per_scene=1,
     register="it-workflow",
 ):
     """Handle transcription and analysis of video/audio content."""
@@ -209,6 +212,9 @@ def handle_transcription(
             thumbnail_interval,
             max_thumbnails,
             min_thumbnail_confidence,
+            extract_scenes=extract_scenes,
+            min_scene_len=min_scene_len,
+            frames_per_scene=frames_per_scene,
             register=register,
         )
 
@@ -258,6 +264,9 @@ def process_video(
     thumbnail_interval=5,
     max_thumbnails=5,
     min_thumbnail_confidence=0.7,
+    extract_scenes=False,
+    min_scene_len=1.0,
+    frames_per_scene=1,
     register="it-workflow",
 ):
     """Main video processing pipeline."""
@@ -371,6 +380,9 @@ def process_video(
                 thumbnail_interval,
                 max_thumbnails,
                 min_thumbnail_confidence,
+                extract_scenes,
+                min_scene_len,
+                frames_per_scene,
                 register,
             )
     else:

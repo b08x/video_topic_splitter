@@ -129,6 +129,24 @@ def main() -> None:
     )
 
     parser.add_argument(
+        "--extract-scenes",
+        action="store_true",
+        help="Use scene detection to extract frames instead of splitting video segments",
+    )
+    parser.add_argument(
+        "--min-scene-len",
+        type=float,
+        default=1.0,
+        help="Minimum scene length in seconds when using --extract-scenes (default: 1.0)",
+    )
+    parser.add_argument(
+        "--frames-per-scene",
+        type=int,
+        default=1,
+        help="Number of frames to extract per scene when using --extract-scenes (default: 1)",
+    )
+
+    parser.add_argument(
         "--analyze-screenshot",
         action="store_true",
         help="Analyze a single screenshot instead of processing video",
@@ -264,6 +282,9 @@ def main() -> None:
                 thumbnail_interval=args.thumbnail_interval,
                 max_thumbnails=args.max_thumbnails,
                 min_thumbnail_confidence=args.min_thumbnail_confidence,
+                extract_scenes=args.extract_scenes,
+                min_scene_len=args.min_scene_len,
+                frames_per_scene=args.frames_per_scene,
             )
 
         print(f"\nProcessing complete. Project folder: {project_path}")
