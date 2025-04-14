@@ -267,30 +267,45 @@ def extract_audio(video_path, output_path):
     Args:
         video_path (str): Path to the input video file.
         output_path (str): Path where the extracted audio file will be saved.
-                           The format is determined by MoviePy based on the
-                           extension, but explicitly set to Opus codec at 48kHz here.
+                           The format is determined by the file extension.
 
     Returns:
-        None: The function performs the extraction and logs the result.
-              It doesn't explicitly return status but relies on MoviePy's
-              exception handling for errors.
-
-    Raises:
-        Exception: Can raise various exceptions from MoviePy (e.g., related to
-                   file reading, writing, codec issues) if the extraction fails.
-                   These are not explicitly caught here but will propagate up.
+        dict: A dictionary containing the status ('success' or 'error') and
+              a message (empty on success, error message on failure).
+              Example: {'status': 'success', 'message': ''}
+                       {'status': 'error', 'message': 'Error details...'}
     """
     logging.info(f"Extracting audio from video: {video_path}")
 
     try:
-        video = VideoFileClip(video_path)  # Create VideoFileClip instance here
-        # Extract audio using Opus codec and 48kHz sample rate
-        video.audio.write_audiofile(output_path, codec="aac", fps=48000)
-        video.close() # Close the video file handle
+        video = VideoFileClip(video_path)
+        
+        # Get the file extension to determine appropriate codec
+        _, ext = os.path.splitext(output_path)
+        
+        # Use appropriate codec based on extension
+        if ext.lower() in ['.m4a', '.aac']:
+            video.audio.write_audiofile(output_path, codec='aac', fps=48000)
+        elif ext.lower() == '.mp3':
+            video.audio.write_audiofile(output_path, codec='libmp3lame', fps=48000)
+        elif ext.lower() == '.opus':
+            video.audio.write_audiofile(output_path, codec='libopus', fps=48000)
+        elif ext.lower() == '.wav':
+            video.audio.write_audiofile(output_path, codec='pcm_s16le', fps=48000)
+        else:
+            # Default case - let MoviePy determine the codec
+            video.audio.write_audiofile(output_path, fps=48000)
+        
+        video.close()  # Close the video file handle
         logging.info(f"Audio extracted and saved to {output_path}")
+        return {"status": "success", "message": ""}
     except Exception as e:
         logging.error(f"Error extracting audio from {video_path}: {e}")
-        # Optionally re-raise or handle specific exceptions
-        raise # Re-raise the exception after logging
+        if 'video' in locals():
+            try:
+                video.close()
+            except:
+                pass
+        return {"status": "error", "message": str(e)}
 
 
