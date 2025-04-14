@@ -17,9 +17,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-eng \
     bash-completion \
+    sudo \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -ms /usr/bin/bash -u 1000 -U vts
+
+# Grant passwordless sudo to the vts user
+RUN echo 'vts ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/vts-nopasswd && \
+    chmod 0440 /etc/sudoers.d/vts-nopasswd
     
 WORKDIR /home/vts
 
