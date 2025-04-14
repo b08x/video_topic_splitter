@@ -20,6 +20,7 @@ setup(
     packages=find_packages(where="src"),
     include_package_data=True,
     install_requires=[
+        "ratelimit>=2.2.1",
         "python-dotenv>=1.0.0",
         "deepgram-sdk>=2.12.0",
         "groq>=0.4.0",

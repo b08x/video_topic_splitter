@@ -5,6 +5,8 @@ import json
 import logging
 import os
 import shutil
+import csv
+from typing import Optional
 
 from deepgram import DeepgramClient, PrerecordedOptions
 from dotenv import load_dotenv
@@ -16,6 +18,7 @@ from dotenv import load_dotenv
 from .analysis.visual_analysis import analyze_scenes, save_analyzed_scenes # Use analyze_scenes
 from .api.deepgram import transcribe_file_deepgram
 from .constants import CHECKPOINTS
+from .api.gemini import GeminiClient
 from .processing.audio.audio import (convert_to_mono_and_resample,
                                      extract_audio, normalize_audio,
                                      remove_silence)
@@ -450,12 +453,24 @@ def process_video(
     if current_stage < scene_analysis_complete_stage:
         logger.info("Starting scene visual analysis...")
         if not scene_boundaries:
-             raise RuntimeError("Cannot perform scene analysis without scene boundaries.")
+            raise RuntimeError("Cannot perform scene analysis without scene boundaries.")
+
+        # Instantiate the Gemini Client here
+        try:
+            gemini_client = GeminiClient() # Assumes API key is in env var
+        except ValueError as e:
+            logger.error(f"Failed to initialize Gemini Client: {e}")
+            raise RuntimeError("Gemini Client initialization failed.") from e
+        except Exception as e: # Catch other potential init errors
+            logger.error(f"Unexpected error initializing Gemini Client: {e}", exc_info=True)
+            raise RuntimeError("Unexpected error initializing Gemini Client.") from e
+
 
         analyzed_scenes = analyze_scenes(
-            input_video=processed_video_path, # Analyze the processed video
+            input_video=processed_video_path,
             scene_boundaries=scene_boundaries,
             project_path=project_path,
+            gemini_client=gemini_client, # Pass the instance
             software_list=software_list,
             ocr_lang=ocr_lang,
             frames_per_scene=frames_per_scene,
@@ -465,22 +480,6 @@ def process_video(
         )
         # Checkpoint is saved within analyze_scenes on success
         current_stage = scene_analysis_complete_stage
-    else:
-        logger.info("Scene analysis already completed. Loading results...")
-        # Load results from checkpoint or file
-        analysis_results_path = os.path.join(project_path, "scene_analysis", "scene_analysis_results.json")
-        if os.path.exists(analysis_results_path):
-             try:
-                 with open(analysis_results_path, 'r', encoding='utf-8') as f:
-                     analyzed_scenes = json.load(f)
-                 logger.info("Loaded scene analysis results from file.")
-             except Exception as e:
-                 logger.error(f"Failed to load scene analysis results from {analysis_results_path}: {e}")
-                 # Decide how to handle - raise error or return incomplete?
-                 raise RuntimeError("Failed to load existing scene analysis results.") from e
-        else:
-             logger.error("Scene analysis checkpoint indicates completion, but results file is missing.")
-             raise RuntimeError("Scene analysis results file missing despite checkpoint.")
 
 
     # --- Stage 6: Video Splitting ---
