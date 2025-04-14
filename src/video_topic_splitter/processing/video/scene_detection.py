@@ -111,7 +111,8 @@ def detect_scenes(
         logger.error("Error during scene detection for %s: %s", video_path, str(e), exc_info=True)
         raise RuntimeError(f"Scene detection failed for {video_path}: {str(e)}") from e
     finally:
-        if video:
+        # Safely close video if it has a release method
+        if video and hasattr(video, 'release'):
             video.release()
 
 
@@ -218,7 +219,8 @@ def extract_scene_frames(
         logger.error("Error extracting scene frames from %s: %s", video_path, str(e), exc_info=True)
         raise RuntimeError(f"Frame extraction failed for {video_path}: {str(e)}") from e
     finally:
-        if video:
+        # Safely close video if it has a release method
+        if video and hasattr(video, 'release'):
             video.release()
 
 
@@ -304,6 +306,7 @@ def split_video_by_scenes(
         logger.error("Error during video splitting: %s", str(e), exc_info=True)
         raise RuntimeError(f"Video splitting failed for {video_path}: {str(e)}") from e
     finally:
-        if video:
+        # Safely close video if it has a release method
+        if video and hasattr(video, 'release'):
             video.release()
 
