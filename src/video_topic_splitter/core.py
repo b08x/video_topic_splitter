@@ -25,6 +25,8 @@ from .processing.audio.audio import (convert_to_mono_and_resample,
 # Import scene detection and splitting functions
 from .processing.video.scene_detection import (detect_scenes,
                                                split_video_by_scenes)
+# Import frame extraction functions from the new module
+from .processing.video.frame_extraction import extract_scene_keyframes
 from .project import load_checkpoint, save_checkpoint
 from .transcription import load_transcript, save_transcript, save_transcription
 from .utils.youtube import download_video, is_youtube_url # Added is_youtube_url
