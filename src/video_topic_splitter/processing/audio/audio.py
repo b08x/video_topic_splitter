@@ -133,7 +133,7 @@ def normalize_audio(input_file, output_file, lowpass_freq=6000, highpass_freq=10
             command.extend(
                 [
                     "-c:a",
-                    "acc",  # Use Opus codec for MP4/M4A
+                    "aac",  # Use Opus codec for MP4/M4A
                 ]
             )
         else:
