@@ -133,7 +133,7 @@ def normalize_audio(input_file, output_file, lowpass_freq=6000, highpass_freq=10
             command.extend(
                 [
                     "-c:a",
-                    "acc",  # Use Opus codec for MP4/M4A
+                    "aac",  # Use Opus codec for MP4/M4A
                 ]
             )
         else:
@@ -260,37 +260,115 @@ def remove_silence(input_file, output_file, audible_speed=2, silent_speed=8):
         return {"status": "error", "message": str(e)}
 
 
-def extract_audio(video_path, output_path):
+def extract_audio(video_path, output_path, sample_rate=48000, channels=1, apply_filters=True, use_moviepy=False):
     """
-    Extracts the audio track from a video file using MoviePy.
-
+    Extracts and processes audio from video in one operation.
+    
+    This function can use either ffmpeg directly (default) or MoviePy based on the use_moviepy parameter.
+    The ffmpeg approach combines extraction with resampling/conversion in one step for better efficiency.
+    
     Args:
         video_path (str): Path to the input video file.
         output_path (str): Path where the extracted audio file will be saved.
-                           The format is determined by MoviePy based on the
-                           extension, but explicitly set to Opus codec at 48kHz here.
+                           The format is determined by the file extension.
+        sample_rate (int, optional): Target sample rate in Hz. Defaults to 48000.
+        channels (int, optional): Number of audio channels (1=mono, 2=stereo). Defaults to 1.
+        apply_filters (bool, optional): Whether to apply audio enhancement filters. Defaults to True.
+        use_moviepy (bool, optional): Whether to use MoviePy instead of direct ffmpeg. Defaults to False.
+                                      This is kept for backward compatibility.
 
     Returns:
-        None: The function performs the extraction and logs the result.
-              It doesn't explicitly return status but relies on MoviePy's
-              exception handling for errors.
-
-    Raises:
-        Exception: Can raise various exceptions from MoviePy (e.g., related to
-                   file reading, writing, codec issues) if the extraction fails.
-                   These are not explicitly caught here but will propagate up.
+        dict: A dictionary containing the status ('success' or 'error') and
+              a message (stdout on success, error message on failure).
+              Example: {'status': 'success', 'message': 'ffmpeg output...'}
+                       {'status': 'error', 'message': 'Error details...'}
     """
     logging.info(f"Extracting audio from video: {video_path}")
-
+    
+    # Use MoviePy approach if specified (legacy support)
+    if use_moviepy:
+        try:
+            video = VideoFileClip(video_path)
+            
+            # Get the file extension to determine appropriate codec
+            _, ext = os.path.splitext(output_path)
+            
+            # Use appropriate codec based on extension
+            if ext.lower() in ['.m4a', '.aac']:
+                video.audio.write_audiofile(output_path, codec='aac', fps=sample_rate)
+            elif ext.lower() == '.mp3':
+                video.audio.write_audiofile(output_path, codec='libmp3lame', fps=sample_rate)
+            elif ext.lower() == '.opus':
+                video.audio.write_audiofile(output_path, codec='libopus', fps=sample_rate)
+            elif ext.lower() == '.wav':
+                video.audio.write_audiofile(output_path, codec='pcm_s16le', fps=sample_rate)
+            else:
+                # Default case - let MoviePy determine the codec
+                video.audio.write_audiofile(output_path, fps=sample_rate)
+            
+            video.close()  # Close the video file handle
+            logging.info(f"Audio extracted using MoviePy and saved to {output_path}")
+            return {"status": "success", "message": ""}
+        except Exception as e:
+            logging.error(f"Error extracting audio from {video_path} using MoviePy: {e}")
+            if 'video' in locals():
+                try:
+                    video.close()
+                except:
+                    pass
+            return {"status": "error", "message": str(e)}
+    
+    # Use direct ffmpeg approach (more efficient)
     try:
-        video = VideoFileClip(video_path)  # Create VideoFileClip instance here
-        # Extract audio using Opus codec and 48kHz sample rate
-        video.audio.write_audiofile(output_path, codec="aac", fps=48000)
-        video.close() # Close the video file handle
-        logging.info(f"Audio extracted and saved to {output_path}")
+        command = [
+            "ffmpeg",
+            "-i", video_path,
+            "-vn",  # Disable video processing
+            "-sn",  # Disable subtitle processing
+        ]
+
+        if apply_filters:
+            command += [
+                "-af",
+                "volume=-3dB,highpass=f=200,acompressor=threshold=-20dB:ratio=2:attack=5:release=50"
+            ]
+
+        # Get the file extension to determine appropriate codec
+        _, ext = os.path.splitext(output_path)
+        
+        # Set audio codec based on extension
+        if ext.lower() in ['.m4a', '.aac']:
+            audio_codec = "aac"
+        elif ext.lower() == '.mp3':
+            audio_codec = "libmp3lame"
+        elif ext.lower() == '.opus':
+            audio_codec = "libopus"
+        elif ext.lower() == '.wav':
+            audio_codec = "pcm_s16le"
+        else:
+            audio_codec = "aac"  # Default to AAC
+            
+        command += [
+            "-ar", str(sample_rate),
+            "-ac", str(channels),
+            "-c:a", audio_codec,
+        ]
+        
+        # Add bitrate for lossy codecs
+        if audio_codec not in ["pcm_s16le"]:
+            command += ["-b:a", "128k"]
+            
+        command.append(output_path)
+
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        logging.info(f"Audio extracted and processed to {output_path}")
+        return {"status": "success", "message": result.stdout}
+    
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Audio extraction/conversion failed: {e.stderr}")
+        return {"status": "error", "message": e.stderr}
     except Exception as e:
-        logging.error(f"Error extracting audio from {video_path}: {e}")
-        # Optionally re-raise or handle specific exceptions
-        raise # Re-raise the exception after logging
+        logging.exception(f"Unexpected error during audio extraction: {e}")
+        return {"status": "error", "message": str(e)}
 
 

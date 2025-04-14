@@ -7,4 +7,4 @@ from video_topic_splitter.core import process_video
 from video_topic_splitter.project import (create_project_folder,
                                           load_checkpoint, save_checkpoint)
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
