@@ -54,4 +54,5 @@ def load_checkpoint(project_path):
     checkpoint_file = os.path.join(project_path, "checkpoint.pkl")
     if os.path.exists(checkpoint_file):
         with open(checkpoint_file, "rb") as f:
-            return
+            return pickle.load(f)
+    return None

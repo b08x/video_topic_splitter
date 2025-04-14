@@ -1,316 +1,281 @@
-# cli.py
-"""Command-line interface for video topic splitter."""
+#!/usr/bin/env python3
+"""Command-line interface utilities for video topic splitting projects.
 
-import argparse
+This module provides core functionality for managing the lifecycle of video
+processing projects. It handles the creation and identification of project-specific
+directories where all intermediate files, results, and state checkpoints are
+stored. This ensures that processing for different videos is isolated and
+that long-running tasks can be potentially resumed.
+
+Key features include:
+- Generating unique project folder names based on input video file paths or
+  YouTube URLs.
+- Identifying existing project folders to potentially reuse or resume work.
+- Saving and loading processing state (checkpoints) using Python's pickle
+  module, allowing tasks to pick up where they left off.
+"""
+
+import glob
 import os
-import sys
-from typing import Optional, Tuple
+import pickle
+import time
+from typing import Any, Dict, Optional
+import logging # Added for potential logging improvements
+import re # Added for more robust URL parsing
 
-from dotenv import load_dotenv
-from video_topic_splitter.constants import CHECKPOINTS
-from video_topic_splitter.core import process_video
-from video_topic_splitter.project import create_project_folder, load_checkpoint
-from video_topic_splitter.utils.youtube import is_youtube_url
+from .constants import CHECKPOINTS
+from .utils.youtube import is_youtube_url # Assuming this utility exists and works correctly
+
+# Consider adding basic logging configuration if not handled elsewhere
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
-def validate_input(
-    input_path: str, analyze_screenshot: bool = False
-) -> Tuple[Optional[str], bool]:
-    """Validate input is either a valid file path or YouTube URL.
+def _extract_youtube_video_id(url: str) -> Optional[str]:
+    """Extracts the YouTube video ID from various URL formats.
+
+    Supports standard watch URLs, short youtu.be URLs, and embed URLs.
 
     Args:
-        input_path: Path to input file or YouTube URL
-        analyze_screenshot: Whether we're analyzing a screenshot (allows image files)
+        url: The YouTube URL string.
 
     Returns:
-        Tuple[Optional[str], bool]: (error message if any, is_youtube_url)
+        The extracted video ID string, or None if no valid ID is found.
     """
-    # Check if input is a YouTube URL
+    # Regex patterns to cover common YouTube URL formats
+    patterns = [
+        r'(?:v=|\/)([0-9A-Za-z_-]{11}).*',  # Standard watch?v= or /v/
+        r'(?:youtu\.be\/)([0-9A-Za-z_-]{11})', # Short youtu.be/
+        r'(?:embed\/)([0-9A-Za-z_-]{11})'    # Embed URL /embed/
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    logger.warning(f"Could not extract YouTube video ID from URL: {url}")
+    return None
+
+
+def create_project_folder(input_path: str, base_output_dir: str) -> str:
+    """Creates or finds an existing project folder for a given input video or URL.
+
+    This function determines the appropriate base name for the project folder.
+    If the input is a recognized YouTube URL, the video ID is extracted and
+    used as the base name, prefixed with 'yt_' (e.g., 'yt_VIDEOID').
+    If the input is a local file path, the base name of the file (without its
+    extension) is used (e.g., 'my_video').
+
+    The function then searches within the `base_output_dir` for existing folders
+    matching the pattern '{base_name}_*'. If one or more matching folders are
+    found, it selects the one with the most recent creation timestamp (using
+    `os.path.getctime`) and returns its absolute path. This allows reusing
+    previous processing results or resuming interrupted tasks.
+
+    If no existing project folder is found, a new one is created. The new
+    folder's name follows the format '{base_name}_{timestamp}', where the
+    timestamp is formatted as 'YYYYMMDD_HHMMSS'. The function ensures the
+    directory is created using `os.makedirs` with `exist_ok=True`.
+
+    Immediately after creating a new folder or identifying an existing one,
+    an initial checkpoint (stage: `PROJECT_CREATED`) is saved within the
+    project folder using `save_checkpoint`. This marks the successful
+    initialization or loading of the project environment.
+
+    Args:
+        input_path: The path to the input video file or a valid YouTube URL string.
+        base_output_dir: The path to the base directory where project folders
+                         should be created or searched for. This directory
+                         must exist.
+
+    Returns:
+        The absolute path to the created or found project folder.
+
+    Raises:
+        OSError: If there is an issue creating the new project directory (e.g.,
+                 permission errors, invalid path).
+        ValueError: If a YouTube URL is provided but a video ID cannot be
+                    extracted.
+    """
     if is_youtube_url(input_path):
-        return None, True
-
-    # Check if input is a valid file
-    if not os.path.exists(input_path):
-        return f"Input file not found: {input_path}", False
-
-    if analyze_screenshot:
-        if not input_path.lower().endswith((".png", ".jpg", ".jpeg")):
-            return (
-                f"Unsupported image format. Supported formats: .png, .jpg, .jpeg",
-                False,
-            )
+        video_id = _extract_youtube_video_id(input_path)
+        if not video_id:
+            raise ValueError(f"Could not extract video ID from YouTube URL: {input_path}")
+        base_name = f"yt_{video_id}"
+        logger.info(f"Identified YouTube input. Using base name: {base_name}")
     else:
-        if not input_path.lower().endswith((".mp4", ".mkv", ".json")):
-            return (
-                f"Unsupported file format. Supported formats: .mp4, .mkv, .json",
-                False,
-            )
+        if not os.path.isfile(input_path):
+             # Add check if it's a file path but doesn't exist
+             # Depending on requirements, you might raise an error or just log a warning
+             logger.warning(f"Input path is not a YouTube URL and file does not exist: {input_path}")
+             # Fallback to using the basename anyway, or raise FileNotFoundError
+             # raise FileNotFoundError(f"Input file not found: {input_path}")
+        base_name = os.path.splitext(os.path.basename(input_path))[0]
+        logger.info(f"Identified file input. Using base name: {base_name}")
 
-    return None, False
+    # Ensure base_output_dir exists before searching/creating projects within it
+    if not os.path.isdir(base_output_dir):
+        # Or raise an error if it *must* exist beforehand
+        logger.info(f"Base output directory does not exist, creating: {base_output_dir}")
+        try:
+            os.makedirs(base_output_dir, exist_ok=True)
+        except OSError as e:
+            logger.error(f"Failed to create base output directory {base_output_dir}: {e}")
+            raise # Re-raise the exception
+
+    project_pattern = os.path.join(base_output_dir, f"{base_name}_*")
+    logger.debug(f"Searching for existing projects with pattern: {project_pattern}")
+    existing_projects = glob.glob(project_pattern)
+
+    project_path: Optional[str] = None
+    if existing_projects:
+        # Filter out potential files that might match the glob pattern
+        existing_dirs = [p for p in existing_projects if os.path.isdir(p)]
+        if existing_dirs:
+            # Sort by creation time (most recent first)
+            # Note: ctime might be 'last metadata change time' on some Unix systems.
+            # mtime (modification time) might be more reliable if files *within* the dir change.
+            # If timestamp in name is reliable, sorting by name might be safer.
+            try:
+                 project_path = max(existing_dirs, key=os.path.getctime)
+                 logger.info(f"Found existing project folder(s). Using most recent: {project_path}")
+            except ValueError:
+                 # This case should ideally not happen if existing_dirs is not empty
+                 logger.warning("Found matching entries but none were directories.")
+                 project_path = None # Ensure project_path is None if max fails
+
+    if project_path is None: # If no existing dir found or max failed
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        project_name = f"{base_name}_{timestamp}"
+        project_path = os.path.join(base_output_dir, project_name)
+        try:
+            os.makedirs(project_path, exist_ok=True)
+            logger.info(f"Created new project folder: {project_path}")
+        except OSError as e:
+            logger.error(f"Failed to create project directory {project_path}: {e}")
+            raise # Re-raise the exception
+
+    # Ensure project_path is now definitely a string
+    if project_path is None:
+         # This should be unreachable if error handling above is correct, but acts as a safeguard
+         raise RuntimeError("Failed to determine project path.")
 
 
-def main() -> None:
-    """Main entry point for the CLI."""
-    parser = argparse.ArgumentParser(
-        description="Process video/transcript for topic-based segmentation or analyze screenshots"
+    # Save an initial checkpoint indicating the project folder is ready
+    # Use os.path.abspath to ensure consistency
+    abs_project_path = os.path.abspath(project_path)
+    save_checkpoint(
+        abs_project_path, CHECKPOINTS["PROJECT_CREATED"], {"project_path": abs_project_path}
     )
-    parser.add_argument(
-        "-i",
-        "--input",
-        required=True,
-        help="Path to input video file, YouTube URL, transcript JSON, or image file (with --analyze-screenshot)",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        default=os.getcwd(),
-        help="Base output directory for project folders",
-    )
-    parser.add_argument(
-        "--api",
-        choices=["deepgram", "groq"],
-        default="deepgram",
-        help="Choose API: deepgram or groq",
-    )
-    parser.add_argument(
-        "--topics", type=int, default=5, help="Number of topics for LDA model"
-    )
-    parser.add_argument("--groq-prompt", help="Optional prompt for Groq transcription")
-    parser.add_argument(
-        "--register",
-        choices=["it-workflow", "gen-ai", "tech-support"],
-        default="it-workflow",
-        help="Analysis register: it-workflow, gen-ai, or tech-support",
-    )
-    parser.add_argument(
-        "--skip-unsilence", action="store_true", help="Skip silence removal processing"
-    )
-    parser.add_argument(
-        "--transcribe-only",
-        action="store_true",
-        help="Only perform audio transcription without topic modeling or video analysis",
-    )
-    parser.add_argument(
-        "--software-list",
-        type=str,
-        help="Path to a text file containing list of software applications to detect (one per line)",
-    )
-    parser.add_argument(
-        "--logo-db",
-        type=str,
-        help="Path to directory containing software logo templates",
-    )
-    parser.add_argument(
-        "--ocr-lang", default="eng", help="Language for OCR detection (default: eng)"
-    )
-    parser.add_argument(
-        "--logo-threshold",
-        type=float,
-        default=0.8,
-        help="Confidence threshold for logo detection (0.0-1.0, default: 0.8)",
-    )
-    parser.add_argument(
-        "--thumbnail-interval",
-        type=int,
-        default=5,
-        help="Time interval between thumbnails in seconds (default: 5)",
-    )
-    parser.add_argument(
-        "--max-thumbnails",
-        type=int,
-        default=5,
-        help="Maximum number of thumbnails to generate per segment (default: 5)",
-    )
-    parser.add_argument(
-        "--min-thumbnail-confidence",
-        type=float,
-        default=0.7,
-        help="Minimum confidence threshold for thumbnail analysis (0.0-1.0, default: 0.7)",
-    )
+    return abs_project_path
 
-    parser.add_argument(
-        "--analyze-screenshot",
-        action="store_true",
-        help="Analyze a single screenshot instead of processing video",
-    )
-    parser.add_argument(
-        "--screenshot-context",
-        help="Optional context to consider during screenshot analysis",
-    )
 
-    args = parser.parse_args()
+def save_checkpoint(project_path: str, stage: str, data: Dict[str, Any]) -> None:
+    """Saves the current processing stage and associated data to a checkpoint file.
 
-    # Load environment variables
-    load_dotenv()
+    This function serializes the provided `data` dictionary along with a `stage`
+    identifier using Python's `pickle` module. The serialized data is written
+    in binary format ('wb') to a file named 'checkpoint.pkl' located directly
+    within the specified `project_path`.
 
-    # Validate input (file or YouTube URL)
-    error, is_youtube = validate_input(args.input, args.analyze_screenshot)
-    if error:
-        print(f"Error: {error}")
-        sys.exit(1)
+    Checkpoints allow the application to store its state at various points
+    during a potentially long-running process. If the process is interrupted,
+    it can be potentially resumed later by loading this checkpoint file using
+    `load_checkpoint`.
 
-    # Create project folder
+    Args:
+        project_path: The absolute path to the project folder where the
+                      'checkpoint.pkl' file should be saved.
+        stage: A string identifier representing the completed processing stage
+               (e.g., 'TRANSCRIPTION_COMPLETE'). It's recommended to use
+               predefined constants, such as those from `constants.CHECKPOINTS`.
+        data: A dictionary containing any data relevant to the completed stage
+              that would be necessary or useful for resuming the process later.
+              This could include file paths, intermediate results, configuration, etc.
+
+    Raises:
+        FileNotFoundError: If the `project_path` directory does not exist.
+        OSError: If there are file system errors during file writing (e.g.,
+                 permissions, disk full).
+        pickle.PicklingError: If the provided `data` object cannot be serialized
+                              by pickle.
+    """
+    if not os.path.isdir(project_path):
+        # It's generally better to ensure the path exists before calling save
+        logger.error(f"Project path does not exist, cannot save checkpoint: {project_path}")
+        raise FileNotFoundError(f"Project directory not found: {project_path}")
+
+    checkpoint_file = os.path.join(project_path, "checkpoint.pkl")
+    logger.info(f"Saving checkpoint for stage '{stage}' to {checkpoint_file}")
     try:
-        project_path = create_project_folder(args.input, args.output)
-        print(f"Project folder: {project_path}")
-    except Exception as e:
-        print(f"Error creating project folder: {str(e)}")
-        sys.exit(1)
+        # Use 'wb' mode for writing binary data (pickle)
+        with open(checkpoint_file, "wb") as f:
+            checkpoint_data = {"stage": stage, "data": data}
+            pickle.dump(checkpoint_data, f)
+        logger.info(f"Checkpoint saved successfully for stage: {stage}")
+    except (OSError, pickle.PicklingError) as e:
+        logger.error(f"Error saving checkpoint file {checkpoint_file}: {e}")
+        # Re-raise the exception to signal failure
+        raise
 
-    try:
-        checkpoint = load_checkpoint(project_path)
-        if checkpoint and checkpoint["stage"] == CHECKPOINTS["PROCESS_COMPLETE"]:
-            results = checkpoint["data"]["results"]
-            print("Loading results from previous complete run.")
-        elif args.analyze_screenshot:
-            # Read software list if provided
-            software_list = None
-            if args.software_list:
-                if not os.path.exists(args.software_list):
-                    print(f"Error: Software list file not found: {args.software_list}")
-                    sys.exit(1)
-                try:
-                    with open(args.software_list, "r") as f:
-                        software_list = [line.strip() for line in f if line.strip()]
-                    print(
-                        f"Loaded {len(software_list)} software applications to detect"
+
+def load_checkpoint(project_path: str) -> Optional[Dict[str, Any]]:
+    """Loads the processing checkpoint data from the project folder.
+
+    This function looks for a file named 'checkpoint.pkl' within the specified
+    `project_path`. If the file exists, it attempts to open it in binary read
+    mode ('rb') and deserialize its contents using `pickle.load`.
+
+    If the file is found and successfully deserialized, the function returns
+    the loaded data, which is expected to be a dictionary containing at least
+    a 'stage' key indicating the last successfully completed stage, and a 'data'
+    key holding the associated state information.
+
+    If the 'checkpoint.pkl' file does not exist in the `project_path`, the
+    function returns `None`.
+
+    If the file exists but an error occurs during file reading or deserialization
+    (e.g., the file is corrupted, empty, or was created with an incompatible
+    pickle protocol or Python version), an error is logged, and the function
+    returns `None`.
+
+    Args:
+        project_path: The absolute path to the project folder where the
+                      'checkpoint.pkl' file is expected to be located.
+
+    Returns:
+        A dictionary containing the 'stage' and 'data' from the last saved
+        checkpoint if the file exists and is loaded successfully. Returns `None`
+        if the checkpoint file does not exist or if an error occurs during
+        loading or deserialization.
+    """
+    checkpoint_file = os.path.join(project_path, "checkpoint.pkl")
+    if os.path.exists(checkpoint_file):
+        logger.info(f"Attempting to load checkpoint from: {checkpoint_file}")
+        try:
+            # Use 'rb' mode for reading binary data (pickle)
+            with open(checkpoint_file, "rb") as f:
+                checkpoint_data = pickle.load(f)
+                if isinstance(checkpoint_data, dict) and 'stage' in checkpoint_data:
+                    logger.info(
+                        f"Checkpoint loaded. Last completed stage: {checkpoint_data.get('stage', 'Unknown')}"
                     )
-                except Exception as e:
-                    print(f"Error reading software list file: {str(e)}")
-                    sys.exit(1)
-
-            from .analysis.visual_analysis import analyze_screenshot
-
-            results = analyze_screenshot(
-                args.input,
-                project_path,
-                software_list=software_list,
-                logo_db_path=args.logo_db,
-                ocr_lang=args.ocr_lang,
-                logo_threshold=args.logo_threshold,
-                context=args.screenshot_context,
-            )
-
-            print("\nScreenshot analysis complete.")
-            print(f"Results saved in: {os.path.join(project_path, 'results.json')}")
-
-            if software_list:
-                print("\nSoftware Detection Results:")
-                if results.get("software_detections"):
-                    for detection in results["software_detections"]:
-                        if detection.get("ocr_matches"):
-                            print(
-                                "\nText detected: "
-                                + ", ".join(
-                                    f"{m['software']} ({m['detected_text']})"
-                                    for m in detection["ocr_matches"]
-                                )
-                            )
-                        if detection.get("logo_matches"):
-                            print(
-                                "\nLogos detected: "
-                                + ", ".join(
-                                    f"{m['software']} (confidence: {m['confidence']:.2f})"
-                                    for m in detection["logo_matches"]
-                                )
-                            )
+                    return checkpoint_data
                 else:
-                    print("No software detected in the screenshot.")
+                    logger.warning(f"Checkpoint file {checkpoint_file} has unexpected format.")
+                    return None # Or handle as corrupted
+        except (pickle.UnpicklingError, EOFError, FileNotFoundError, OSError, TypeError) as e:
+            # FileNotFoundError might occur in rare race conditions
+            # OSError for general I/O errors
+            # TypeError can occur with incompatible pickle data
+            logger.error(f"Error loading checkpoint file {checkpoint_file}: {e}")
+            # Optionally, handle corrupted/empty file (e.g., delete it, rename it)
+            # os.rename(checkpoint_file, checkpoint_file + ".corrupted")
+            return None
+        except Exception as e:
+             # Catch any other unexpected errors during loading
+             logger.error(f"Unexpected error loading checkpoint {checkpoint_file}: {e}", exc_info=True)
+             return None
+    else:
+        logger.info(f"No checkpoint file found at: {checkpoint_file}")
+        return None
 
-            if results.get("gemini_analysis"):
-                print("\nGemini Analysis:")
-                print(results["gemini_analysis"])
-
-        elif args.input.endswith(".json"):
-            transcript = load_transcript(
-                args.input
-            )  # This will be removed - loading transcript should be handled differently if needed.
-            results = process_transcript(
-                transcript, project_path, args.topics
-            )  # Corrected import path
-            print(
-                "Note: Video splitting and Gemini analysis are not performed when processing a transcript file."
-            )
-        else:
-            # Read software list if provided
-            software_list = None
-            if args.software_list:
-                if not os.path.exists(args.software_list):
-                    print(f"Error: Software list file not found: {args.software_list}")
-                    sys.exit(1)
-                try:
-                    with open(args.software_list, "r") as f:
-                        software_list = [line.strip() for line in f if line.strip()]
-                    print(
-                        f"Loaded {len(software_list)} software applications to detect"
-                    )
-                except Exception as e:
-                    print(f"Error reading software list file: {str(e)}")
-                    sys.exit(1)
-
-            results = process_video(
-                args.input,
-                project_path,
-                args.api,
-                args.topics,
-                args.groq_prompt,
-                args.skip_unsilence,
-                args.transcribe_only,
-                is_youtube_url=is_youtube,
-                software_list=software_list,
-                logo_db_path=args.logo_db,
-                ocr_lang=args.ocr_lang,
-                logo_threshold=args.logo_threshold,
-                thumbnail_interval=args.thumbnail_interval,
-                max_thumbnails=args.max_thumbnails,
-                min_thumbnail_confidence=args.min_thumbnail_confidence,
-            )
-
-        print(f"\nProcessing complete. Project folder: {project_path}")
-        print(f"Results saved in: {os.path.join(project_path, 'results.json')}")
-
-        if args.transcribe_only:
-            print("\nTranscription completed successfully.")
-            print("Transcript and raw transcription data saved in project folder.")
-        else:
-            if not args.analyze_screenshot:
-                print("\nTop words for each topic:")
-                for topic in results["topics"]:
-                    print(f"Topic {topic['topic_id'] + 1}: {', '.join(topic['words'])}")
-
-                print(
-                    f"\nGenerated and analyzed {len(results['analyzed_segments'])} segments"
-                )
-
-                if args.software_list:
-                    print("\nSoftware Detection Results:")
-                    for segment in results["analyzed_segments"]:
-                        if (
-                            "software_detected" in segment
-                            and segment["software_detected"]
-                        ):
-                            print(
-                                f"\nSegment {segment['segment_id']} ({segment['start_time']:.2f}s - {segment['end_time']:.2f}s):"
-                            )
-                            print(f"Analysis: {segment['gemini_analysis']}")
-
-                if not args.input.endswith(".json"):
-                    print(
-                        f"\nVideo segments saved in: {os.path.join(project_path, 'segments')}"
-                    )
-
-    except KeyboardInterrupt:
-        print("\nProcess interrupted by user. Progress has been saved.")
-        print(f"To resume, run the same command again with the same arguments.")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\nAn error occurred during processing: {str(e)}")
-        print("Please check the project folder for any partial results or logs.")
-        print(
-            "You can resume processing by running the script again with the same arguments."
-        )
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

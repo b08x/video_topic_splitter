@@ -25,6 +25,7 @@ setup(
         "groq>=0.4.0",
         "pydub>=0.25.1",
         "moviepy",
+        "scenedetect>=0.6.2",
         "openai>=1.12.0",  # Corrected version to match requirements.txt
         "google-generativeai>=0.4.3",  # Corrected version to match requirements.txt
         "videogrep>=2.0.0",  # Corrected version to match requirements.txt
