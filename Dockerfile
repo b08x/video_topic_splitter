@@ -23,6 +23,8 @@ RUN useradd -ms /usr/bin/bash -u 1001 -U vts
     
 WORKDIR /home/vts
 
+# Set environment variables for the vts user
+ENV HOME="/home/vts"
 ENV PATH="/home/vts/.local/bin:${PATH}"
 
 # Create a custom .bashrc for the vts user with color prompt and completions
@@ -41,17 +43,18 @@ RUN echo 'export PS1="\[\033[38;5;45m\]\u\[\033[0m\]@\[\033[38;5;208m\]\h\[\033[
 # Copy only requirements first to leverage Docker cache
 COPY --chown=vts:vts requirements.txt /home/vts/
 
-# Install dependencies as user
+# Switch to vts user
 USER vts
-# Use --user flag to ensure packages are installed in the user's home directory
-RUN pip install --user --no-cache-dir -r requirements.txt
+
+# Install dependencies as vts user
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Now copy the application code
 COPY --chown=vts:vts src /home/vts/src
 COPY --chown=vts:vts setup.py /home/vts/
 
 # Install the application in development mode
-RUN pip install --user --no-cache-dir -e .
+RUN pip install --no-cache-dir -e .
 
 # Set entrypoint (using -m for correct module resolution)
 # ENTRYPOINT ["python3", "-m", "video_topic_splitter.cli"]
