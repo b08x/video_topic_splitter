@@ -22,5 +22,12 @@ Dictionary mapping checkpoint names (stages) to integer values for the
 scene-based video splitting pipeline.
 """
 
+# Define a separate constant for the no scenes detected checkpoint
+NO_SCENES_DETECTED = 4.5
+"""
+Checkpoint value for when no scenes are detected in the video.
+This is between SCENES_DETECTED and SCENE_ANALYSIS_COMPLETE.
+"""
+
 # Note: LOGO_DB_PATH is removed as logo detection is being removed.
 

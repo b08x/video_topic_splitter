@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from .analysis.visual_analysis import analyze_scenes, save_analyzed_scenes # Use analyze_scenes
 from .api.deepgram import transcribe_file_deepgram
 from .constants import CHECKPOINTS
+from .constants import NO_SCENES_DETECTED
 from .api.gemini import GeminiClient
 from .processing.audio.audio import (convert_to_mono_and_resample,
                                      extract_audio, normalize_audio,
@@ -279,7 +280,15 @@ def handle_transcription_and_scene_detection(
                 min_scene_len_sec=min_scene_len_sec,
                 save_csv=True # Ensure CSV is saved
             )
-            logger.info(f"Scene detection complete. Found {len(scene_boundaries)} scenes.")
+            
+            if scene_boundaries and len(scene_boundaries) > 0:
+                logger.info(f"Scene detection complete. Found {len(scene_boundaries)} scenes.")
+            else:
+                logger.warning("No scenes were detected in the video.")
+                # Save a special checkpoint for no scenes detected
+                save_checkpoint(project_path, NO_SCENES_DETECTED, {"message": "No scenes detected in video"})
+                # Initialize empty list to prevent None errors
+                scene_boundaries = []
         except Exception as e:
             logger.error(f"Scene detection failed: {e}", exc_info=True)
             scene_boundaries = None # Indicate failure
@@ -454,34 +463,50 @@ def process_video(
     analyzed_scenes = None
     if current_stage < scene_analysis_complete_stage:
         logger.info("Starting scene visual analysis...")
-        if not scene_boundaries:
-            raise RuntimeError("Cannot perform scene analysis without scene boundaries.")
-
-        # Instantiate the Gemini Client here
-        try:
-            gemini_client = GeminiClient() # Assumes API key is in env var
-        except ValueError as e:
-            logger.error(f"Failed to initialize Gemini Client: {e}")
-            raise RuntimeError("Gemini Client initialization failed.") from e
-        except Exception as e: # Catch other potential init errors
-            logger.error(f"Unexpected error initializing Gemini Client: {e}", exc_info=True)
-            raise RuntimeError("Unexpected error initializing Gemini Client.") from e
-
-
-        analyzed_scenes = analyze_scenes(
-            input_video=processed_video_path,
-            scene_boundaries=scene_boundaries,
-            project_path=project_path,
-            gemini_client=gemini_client, # Pass the instance
-            software_list=software_list,
-            ocr_lang=ocr_lang,
-            frames_per_scene=frames_per_scene,
-            frame_format=frame_format,
-            compression_quality=compression_quality,
-            register=register,
+        
+        # Check if we have the no scenes detected checkpoint
+        no_scenes_detected = (current_stage == NO_SCENES_DETECTED) or (
+            checkpoint and checkpoint.get("stage") == NO_SCENES_DETECTED
         )
-        # Checkpoint is saved within analyze_scenes on success
-        current_stage = scene_analysis_complete_stage
+        
+        if not scene_boundaries and not no_scenes_detected:
+            raise RuntimeError("Cannot perform scene analysis without scene boundaries.")
+        
+        if no_scenes_detected or (scene_boundaries and len(scene_boundaries) == 0):
+            logger.info("Skipping scene analysis as no scenes were detected.")
+            analyzed_scenes = []  # Empty list instead of None
+            save_checkpoint(
+                project_path, scene_analysis_complete_stage, {"analyzed_scenes": analyzed_scenes}
+            )
+            current_stage = scene_analysis_complete_stage
+            # Skip the rest of this stage
+        else:
+
+            # Instantiate the Gemini Client here
+            try:
+                gemini_client = GeminiClient() # Assumes API key is in env var
+            except ValueError as e:
+                logger.error(f"Failed to initialize Gemini Client: {e}")
+                raise RuntimeError("Gemini Client initialization failed.") from e
+            except Exception as e: # Catch other potential init errors
+                logger.error(f"Unexpected error initializing Gemini Client: {e}", exc_info=True)
+                raise RuntimeError("Unexpected error initializing Gemini Client.") from e
+
+
+            analyzed_scenes = analyze_scenes(
+                input_video=processed_video_path,
+                scene_boundaries=scene_boundaries,
+                project_path=project_path,
+                gemini_client=gemini_client, # Pass the instance
+                software_list=software_list,
+                ocr_lang=ocr_lang,
+                frames_per_scene=frames_per_scene,
+                frame_format=frame_format,
+                compression_quality=compression_quality,
+                register=register,
+            )
+            # Checkpoint is saved within analyze_scenes on success
+            current_stage = scene_analysis_complete_stage
 
 
     # --- Stage 6: Video Splitting ---
@@ -489,27 +514,43 @@ def process_video(
     split_video_paths = None
     if current_stage < video_split_complete_stage:
         logger.info("Splitting video by detected scenes...")
-        if not scene_boundaries:
+        
+        # Check if we have the no scenes detected checkpoint
+        no_scenes_detected = (current_stage == NO_SCENES_DETECTED) or (
+            checkpoint and checkpoint.get("stage") == NO_SCENES_DETECTED
+        )
+        
+        if not scene_boundaries and not no_scenes_detected:
              raise RuntimeError("Cannot split video without scene boundaries.")
-
-        split_output_dir = os.path.join(project_path, "split_videos")
-        os.makedirs(split_output_dir, exist_ok=True)
-        try:
-            split_video_paths = split_video_by_scenes(
-                video_path=processed_video_path, # Split the same video used for analysis
-                scene_list=scene_boundaries,
-                output_dir=split_output_dir,
-                # output_file_template defaults to 'scene_$SCENE_NUMBER.mp4'
-            )
+        
+        if no_scenes_detected or (scene_boundaries and len(scene_boundaries) == 0):
+            logger.info("Skipping video splitting as no scenes were detected.")
+            split_video_paths = []  # Empty list instead of None
             save_checkpoint(
                 project_path, video_split_complete_stage, {"split_video_paths": split_video_paths}
             )
-            logger.info(f"Video successfully split into {len(split_video_paths)} segments.")
             current_stage = video_split_complete_stage
-        except Exception as e:
-             logger.error(f"Failed to split video: {e}", exc_info=True)
-             # Don't raise error, just report failure and proceed without split paths
-             split_video_paths = [] # Indicate failure
+            # Skip the rest of this stage
+        else:
+
+            split_output_dir = os.path.join(project_path, "split_videos")
+            os.makedirs(split_output_dir, exist_ok=True)
+            try:
+                split_video_paths = split_video_by_scenes(
+                    video_path=processed_video_path, # Split the same video used for analysis
+                    scene_list=scene_boundaries,
+                    output_dir=split_output_dir,
+                    # output_file_template defaults to 'scene_$SCENE_NUMBER.mp4'
+                )
+                save_checkpoint(
+                    project_path, video_split_complete_stage, {"split_video_paths": split_video_paths}
+                )
+                logger.info(f"Video successfully split into {len(split_video_paths)} segments.")
+                current_stage = video_split_complete_stage
+            except Exception as e:
+                 logger.error(f"Failed to split video: {e}", exc_info=True)
+                 # Don't raise error, just report failure and proceed without split paths
+                 split_video_paths = [] # Indicate failure
     else:
         logger.info("Video splitting already completed.")
         split_video_paths = checkpoint["data"].get("split_video_paths")

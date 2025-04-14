@@ -7,7 +7,7 @@ import os
 from typing import Dict, List, Optional, Tuple
 
 from scenedetect import SceneManager, open_video
-from scenedetect.detectors import ContentDetector
+from scenedetect.detectors import ContentDetector, AdaptiveDetector
 from scenedetect.scene_manager import save_images # Keep for frame extraction
 from scenedetect.stats_manager import StatsManager
 from scenedetect.video_splitter import split_video_ffmpeg # Import for splitting
@@ -21,9 +21,12 @@ def detect_scenes(
     threshold: float = 27.0,
     min_scene_len_sec: float = 1.0,
     save_csv: bool = True,
+    short_video_threshold_sec: float = 60.0,  # Videos <= this length are considered "short"
 ) -> List[Tuple[float, float]]:
     """
     Detects scenes in a video using PySceneDetect's content-based detector.
+    If no scenes are detected, falls back to AdaptiveDetector.
+    For short videos with no detected scenes, creates a single scene spanning the entire video.
 
     Args:
         video_path (str): Path to the input video file.
@@ -35,6 +38,8 @@ def detect_scenes(
                                              detected scene. Defaults to 1.0.
         save_csv (bool, optional): Whether to save the detected scene list to a
                                    CSV file in the output_dir. Defaults to True.
+        short_video_threshold_sec (float, optional): Maximum duration in seconds for a video
+                                                    to be considered "short". Defaults to 60.0.
 
     Returns:
         List[Tuple[float, float]]: A list of tuples, where each tuple represents a scene
@@ -55,6 +60,10 @@ def detect_scenes(
         fps = video.frame_rate
         if not fps or fps <= 0:
              raise ValueError("Invalid or zero framerate detected.")
+             
+        # Get video duration in seconds
+        video_duration_sec = video.duration.get_seconds()
+        logger.info(f"Video duration: {video_duration_sec:.2f} seconds")
 
         # Convert min_scene_len from seconds to frames
         min_scene_len_frames = int(min_scene_len_sec * fps)
@@ -75,6 +84,42 @@ def detect_scenes(
         # Get scene list (list of tuples, each tuple is start/end Timecode)
         scene_list_timecodes = scene_manager.get_scene_list()
 
+        # If no scenes detected with ContentDetector, try AdaptiveDetector
+        if not scene_list_timecodes:
+            logger.info("No scenes detected with ContentDetector. Trying AdaptiveDetector...")
+            
+            # Reset scene manager with a new one
+            scene_manager = SceneManager(StatsManager())
+            
+            # Add AdaptiveDetector with appropriate parameters
+            # Lower adaptive_threshold makes it more sensitive
+            scene_manager.add_detector(
+                AdaptiveDetector(
+                    adaptive_threshold=3.0,  # Default is 3.0
+                    min_scene_len=min_scene_len_frames,
+                    window_width=2,  # Default is 2
+                    min_content_val=15.0  # Default is 15.0
+                )
+            )
+            
+            # Detect scenes again with AdaptiveDetector
+            logger.info("Detecting scenes with AdaptiveDetector...")
+            scene_manager.detect_scenes(video=video, show_progress=False)
+            scene_list_timecodes = scene_manager.get_scene_list()
+            
+            if scene_list_timecodes:
+                logger.info("AdaptiveDetector found %d scenes.", len(scene_list_timecodes))
+            else:
+                logger.warning("No scenes detected with AdaptiveDetector either.")
+                
+                # For short videos, create a single scene spanning the entire video
+                if video_duration_sec <= short_video_threshold_sec:
+                    logger.info(f"Short video detected ({video_duration_sec:.2f} sec). Creating a single scene for the entire video.")
+                    start_tc = video.base_timecode
+                    end_tc = video.base_timecode + int(video_duration_sec * fps)
+                    scene_list_timecodes = [(start_tc, end_tc)]
+                    logger.info("Created 1 scene spanning the entire video.")
+
         # Convert Timecode objects to seconds
         scene_boundaries_sec = [
             (start.get_seconds(), end.get_seconds())
@@ -84,7 +129,7 @@ def detect_scenes(
         logger.info("Detected %d scenes.", len(scene_boundaries_sec))
 
         # Save scene list to CSV if requested
-        if save_csv:
+        if save_csv and scene_boundaries_sec:
             csv_path = os.path.join(output_dir, "scenes.csv")
             try:
                 with open(csv_path, "w", newline="", encoding="utf-8") as f:
@@ -123,9 +168,11 @@ def extract_scene_frames(
     num_frames_per_scene: int = 1,
     frame_format: str = "jpg",
     jpg_quality: int = 90,
+    short_video_frames: int = 3,  # Number of frames to extract for short videos
 ) -> List[Dict]:
     """
     Extracts representative frames (thumbnails) from each detected scene.
+    For short videos with a single scene, extracts multiple frames.
 
     Args:
         video_path (str): Path to the input video file.
@@ -139,6 +186,8 @@ def extract_scene_frames(
                                       Defaults to "jpg".
         jpg_quality (int, optional): Quality for saved JPEG images (1-100).
                                      Defaults to 90.
+        short_video_frames (int, optional): Number of frames to extract for short videos
+                                           with a single scene. Defaults to 3.
 
     Returns:
         List[Dict]: A list of dictionaries, one for each scene, containing:
@@ -165,6 +214,20 @@ def extract_scene_frames(
         if not fps or fps <= 0:
              raise ValueError("Invalid or zero framerate detected for frame extraction.")
 
+        # Check if this is a single scene spanning a short video
+        is_short_single_scene = False
+        if len(scene_boundaries) == 1:
+            start_time, end_time = scene_boundaries[0]
+            duration = end_time - start_time
+            if duration <= 60.0:  # 60 seconds threshold for short videos
+                is_short_single_scene = True
+                logger.info(f"Detected short video with single scene ({duration:.2f} sec). Will extract {short_video_frames} frames.")
+                num_frames_to_extract = short_video_frames
+            else:
+                num_frames_to_extract = num_frames_per_scene
+        else:
+            num_frames_to_extract = num_frames_per_scene
+
         # Convert scene boundaries from seconds back to PySceneDetect Timecode objects
         scene_list_timecodes = []
         for start_sec, end_sec in scene_boundaries:
@@ -176,17 +239,16 @@ def extract_scene_frames(
             scene_list_timecodes.append((start_tc, end_tc))
 
         logger.info("Extracting %d frame(s) per scene from %d scenes into %s...",
-                    num_frames_per_scene, len(scene_list_timecodes), output_dir)
+                    num_frames_to_extract, len(scene_list_timecodes), output_dir)
 
         # Use PySceneDetect's save_images
         image_filenames_dict = save_images(
             scene_list=scene_list_timecodes,
             video=video,
             output_dir=output_dir,
-            num_images=num_frames_per_scene,
+            num_images=num_frames_to_extract,
             image_extension=frame_format,
-            encoder_options={'quality': jpg_quality} if frame_format == 'jpg' else {},
-            file_name_template='$SCENE_NUMBER-$IMAGE_NUMBER', # 1-based scene number
+            image_name_template='$SCENE_NUMBER-$IMAGE_NUMBER', # 1-based scene number
             show_progress=False, # Less verbose logs
         )
 
@@ -260,6 +322,17 @@ def split_video_by_scenes(
     if not scene_list:
         logger.warning("No scenes provided for splitting.")
         return []
+
+    # For a single scene that spans the entire video, just return the original video
+    if len(scene_list) == 1:
+        start_time, end_time = scene_list[0]
+        video = open_video(video_path)
+        video_duration = video.duration.get_seconds()
+        
+        # If the scene covers almost the entire video (within 0.5 seconds tolerance)
+        if abs(start_time) < 0.5 and abs(end_time - video_duration) < 0.5:
+            logger.info("Single scene spans the entire video. Skipping unnecessary splitting.")
+            return [video_path]
 
     os.makedirs(output_dir, exist_ok=True) # Ensure output directory exists
     video = None
