@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Visual analysis functionalities for video scenes."""
 
-# ... other imports ...
+import logging
+import os
+import cv2
+from typing import Dict, List, Tuple, Any, Optional
 import tqdm
 from PIL import Image, UnidentifiedImageError
 
@@ -14,7 +17,29 @@ from ..project import save_checkpoint, load_checkpoint
 
 logger = logging.getLogger(__name__)
 
-# ... (Persistence functions load_analyzed_scenes, save_analyzed_scenes remain the same) ...
+# --- Persistence Functions ---
+
+def load_analyzed_scenes(analysis_dir: str) -> List[Dict]:
+    """Load previously analyzed scene results from disk."""
+    results_path = os.path.join(analysis_dir, "scene_analysis_results.json")
+    if os.path.exists(results_path):
+        try:
+            import json
+            with open(results_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load scene analysis results: {e}")
+    return []
+
+def save_analyzed_scenes(analysis_dir: str, scene_results: List[Dict]) -> None:
+    """Save analyzed scene results to disk."""
+    results_path = os.path.join(analysis_dir, "scene_analysis_results.json")
+    try:
+        import json
+        with open(results_path, 'w') as f:
+            json.dump(scene_results, f, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to save scene analysis results: {e}")
 
 
 # --- Core Analysis Functions ---
