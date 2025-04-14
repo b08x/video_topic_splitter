@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash-completion \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -ms /usr/bin/bash -u 1001 -U vts
+RUN useradd -ms /usr/bin/bash -u 1000 -U vts
     
 WORKDIR /home/vts
 
