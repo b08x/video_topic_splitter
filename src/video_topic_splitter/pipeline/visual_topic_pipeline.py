@@ -10,64 +10,47 @@ import logging
 import os
 import json
 from typing import Dict, List, Tuple, Any, Optional
+import asyncio
+import numpy as np
+from tqdm import tqdm
 
 from ..analysis.visual_analysis import analyze_scenes, load_analyzed_scenes
 from ..analysis.visual_topic_modeling import process_transcript_with_visuals
+# Import load_transcript instead of load_transcript_sentences
+from ..transcription import load_transcript
 from ..api.gemini import GeminiClient
 from ..constants import CHECKPOINTS
 from ..project import save_checkpoint, load_checkpoint
 
-# Define logger at the module level before it's used
 logger = logging.getLogger(__name__)
-
-# Try different import paths for transcript_processing
-try:
-    # Try the direct import first
-    from ..processing.transcript.transcript_processing import load_transcript_sentences
-except ImportError:
-    # Alternative import path if the module is elsewhere
-    try:
-        from ..analysis.transcript_processing import load_transcript_sentences
-    except ImportError:
-        # If still not found, try another common location
-        try:
-            from ..transcript_processing import load_transcript_sentences
-        except ImportError:
-            # If still not found, define a placeholder function to avoid runtime errors
-            logger.error("Could not import load_transcript_sentences. Defining placeholder.")
-            
-            def load_transcript_sentences(path):
-                """Placeholder function for loading transcript sentences."""
-                with open(path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
 
 def prepare_visual_frames_for_topic_modeling(
     scene_analysis_results: List[Dict]
 ) -> List[Dict]:
     """Converts scene analysis results into a format suitable for topic modeling.
-    
+
     Args:
         scene_analysis_results (List[Dict]): Results from visual scene analysis.
-        
+
     Returns:
         List[Dict]: List of frame dictionaries with timestamps and descriptions.
     """
     logger.info("Preparing visual frames for topic modeling...")
     visual_frames = []
-    
+
     for scene in scene_analysis_results:
         scene_id = scene.get("scene_id")
         start_time = scene.get("start_time", 0.0)
         end_time = scene.get("end_time", 0.0)
-        
+
         # Get frame analyses from this scene
         frame_analyses = scene.get("frame_analyses", [])
-        
+
         for frame_idx, frame_analysis in enumerate(frame_analyses):
             # Skip frames with errors
             if "error" in frame_analysis:
                 continue
-                
+
             # Calculate approximate timestamp for this frame within the scene
             if len(frame_analyses) > 1:
                 # Distribute frames evenly across scene duration
@@ -75,7 +58,7 @@ def prepare_visual_frames_for_topic_modeling(
             else:
                 # If only one frame, use the middle of the scene
                 frame_time = (start_time + end_time) / 2
-                
+
             # Create frame dictionary
             frame_dict = {
                 "scene_id": scene_id,
@@ -85,12 +68,12 @@ def prepare_visual_frames_for_topic_modeling(
                 "frame_path": frame_analysis.get("frame_path", ""),
                 "software_detections": frame_analysis.get("software_detections", [])
             }
-            
+
             visual_frames.append(frame_dict)
-    
+
     # Sort frames by timestamp
     visual_frames.sort(key=lambda x: x.get("timestamp", 0.0))
-    
+
     logger.info(f"Prepared {len(visual_frames)} visual frames for topic modeling")
     return visual_frames
 
@@ -109,17 +92,17 @@ def run_visual_topic_pipeline(
     visual_similarity_threshold: float = 0.85  # Added visual_similarity_threshold parameter
 ) -> Dict:
     """Runs the complete visual topic analysis pipeline.
-    
+
     This function orchestrates the entire process of:
     1. Analyzing video scenes visually
     2. Processing transcript text
     3. Combining visual and textual analysis for topic modeling
-    
+
     Args:
         input_video (str): Path to the input video file.
         project_path (str): Path to the project directory.
         gemini_api_key (str): API key for Gemini.
-        scene_boundaries (Optional[List[Tuple[float, float]]], optional): List of scene 
+        scene_boundaries (Optional[List[Tuple[float, float]]], optional): List of scene
             boundary tuples (start_time, end_time). Defaults to None.
         software_list (Optional[List[str]], optional): List of software names to detect.
             Defaults to None.
@@ -132,12 +115,13 @@ def run_visual_topic_pipeline(
         register (str, optional): Analysis domain/register. Defaults to "gen-ai".
         force_reanalysis (bool, optional): Whether to force reanalysis of already
             processed data. Defaults to False.
-            
+        visual_similarity_threshold (float, optional): Threshold for visual similarity. Defaults to 0.85.
+
     Returns:
         Dict: Dictionary containing the combined analysis results.
     """
     logger.info(f"Starting visual topic pipeline for video: {input_video}")
-    
+
     # Check if visual topic analysis is already complete
     visual_topic_results_path = os.path.join(project_path, "visual_topic_analysis_results.json")
     if os.path.exists(visual_topic_results_path) and not force_reanalysis:
@@ -147,18 +131,18 @@ def run_visual_topic_pipeline(
                 return json.load(f)
         except Exception as e:
             logger.warning(f"Failed to load existing visual topic results: {e}. Proceeding with analysis.")
-    
+
     # Initialize Gemini client
     gemini_client = GeminiClient(api_key=gemini_api_key)
-    
+
     # Step 1: Run or load visual scene analysis
     analysis_results_dir = os.path.join(project_path, "scene_analysis")
     os.makedirs(analysis_results_dir, exist_ok=True)
-    
+
     # Load checkpoint
     checkpoint = load_checkpoint(project_path)
     scene_analysis_checkpoint = checkpoint and checkpoint.get("stage") == CHECKPOINTS["SCENE_ANALYSIS_COMPLETE"]
-    
+
     if scene_analysis_checkpoint and not force_reanalysis:
         logger.info("Loading existing scene analysis results...")
         scene_analysis_results = load_analyzed_scenes(analysis_results_dir)
@@ -192,76 +176,39 @@ def run_visual_topic_pipeline(
             register=register,
             visual_similarity_threshold=visual_similarity_threshold  # Pass the visual_similarity_threshold parameter
         )
-    
-    # Step 2: Load transcript sentences
-    transcript_path = os.path.join(project_path, "transcript", "transcript_sentences.json")
+
+    # --- MODIFICATION START ---
+    # Step 2: Load the simplified transcript generated by core.py
+    # Construct path to transcript.json (adjust if structure differs)
+    transcript_path = os.path.join(project_path, "transcript.json") # Load transcript.json
     transcript_sentences = []
-    
+
     if not os.path.exists(transcript_path):
-        logger.warning(f"Transcript sentences not found at: {transcript_path}")
-        logger.info("Creating transcript directory and empty transcript file...")
-        
-        # Create transcript directory if it doesn't exist
-        transcript_dir = os.path.dirname(transcript_path)
-        os.makedirs(transcript_dir, exist_ok=True)
-        
-        # Create an empty transcript file with basic structure
-        empty_transcript = []
-        
-        # If we have scene analysis results, create placeholder transcript sentences
-        # based on scene boundaries to provide some structure
-        if scene_analysis_results:
-            logger.info("Creating placeholder transcript sentences based on scene boundaries...")
-            for scene in scene_analysis_results:
-                scene_id = scene.get("scene_id")
-                start_time = scene.get("start_time", 0)
-                end_time = scene.get("end_time", 0)
-                
-                # Create a placeholder sentence for this scene
-                # Include both 'text' and 'content' fields to ensure compatibility
-                placeholder_sentence = {
-                    "start": start_time,
-                    "end": end_time,
-                    "text": f"Scene {scene_id} visual content",
-                    "content": f"Scene {scene_id} visual content",  # Add content field for topic modeling
-                    "scene_id": scene_id,
-                    "is_placeholder": True  # Mark as placeholder
-                }
-                empty_transcript.append(placeholder_sentence)
-        
-        # Save the empty/placeholder transcript
-        try:
-            with open(transcript_path, 'w', encoding='utf-8') as f:
-                json.dump(empty_transcript, f, indent=2, ensure_ascii=False)
-            logger.info(f"Created empty transcript file at: {transcript_path}")
-            transcript_sentences = empty_transcript
-        except Exception as e:
-            logger.error(f"Failed to create empty transcript file: {e}")
-            # Continue with empty transcript list
+        logger.error(f"Transcript file not found at: {transcript_path}. Cannot proceed with visual topic modeling.")
+        # Handle error appropriately - perhaps return an error state or empty results
+        # For now, we'll proceed with an empty list, but logging the error is crucial.
     else:
-        logger.info(f"Loading transcript sentences from: {transcript_path}")
+        logger.info(f"Loading transcript utterances from: {transcript_path}")
         try:
-            transcript_sentences = load_transcript_sentences(transcript_path)
-            
-            # Ensure each sentence has a 'content' field (required by topic modeling)
-            for sentence in transcript_sentences:
-                if "content" not in sentence and "text" in sentence:
-                    sentence["content"] = sentence["text"]
-                    
+            # Use load_transcript from transcription.py
+            transcript_sentences = load_transcript(transcript_path)
+            # No need to check for 'content' vs 'text' as load_transcript returns
+            # the structure saved by core.py, which uses 'content', 'start', 'end'.
         except Exception as e:
-            logger.error(f"Failed to load transcript sentences: {e}")
+            logger.error(f"Failed to load transcript from {transcript_path}: {e}")
             # Continue with empty transcript list
-    
+    # --- MODIFICATION END ---
+
     # Step 3: Prepare visual frames for topic modeling
     visual_frames = prepare_visual_frames_for_topic_modeling(scene_analysis_results)
-    
+
     if not visual_frames:
         logger.warning("No visual frames prepared. Topic modeling will rely solely on transcript.")
-        
+
         # If we have no visual frames and no transcript, we can't proceed with topic modeling
         if not transcript_sentences:
             logger.error("No visual frames and no transcript sentences. Cannot proceed with topic modeling.")
-            
+
             # Return just the scene analysis results
             combined_results = {
                 "scene_analysis": {
@@ -277,7 +224,7 @@ def run_visual_topic_pipeline(
                     "error": "No transcript or visual frames available for topic modeling"
                 }
             }
-            
+
             # Save the results
             combined_results_path = os.path.join(project_path, "combined_analysis_results.json")
             try:
@@ -285,12 +232,13 @@ def run_visual_topic_pipeline(
                     json.dump(combined_results, f, indent=2, ensure_ascii=False)
             except Exception as e:
                 logger.error(f"Failed to save combined results: {e}")
-                
+
             return combined_results
-    
+
     # Step 4: Run visual topic modeling
     logger.info("Running visual topic modeling...")
     try:
+        # Pass the loaded transcript_sentences (from transcript.json) here
         visual_topic_results = process_transcript_with_visuals(
             transcript_sentences=transcript_sentences,
             visual_frames=visual_frames,
@@ -305,11 +253,11 @@ def run_visual_topic_pipeline(
             "visual_topics": [],
             "segments": []
         }
-    
+
     # Step 5: Save combined results
     combined_results_path = os.path.join(project_path, "combined_analysis_results.json")
     logger.info(f"Saving combined analysis results to: {combined_results_path}")
-    
+
     combined_results = {
         "visual_topic_analysis": visual_topic_results,
         "scene_analysis": {
@@ -324,13 +272,13 @@ def run_visual_topic_pipeline(
             "ocr_language": ocr_lang
         }
     }
-    
+
     try:
         with open(combined_results_path, 'w', encoding='utf-8') as f:
             json.dump(combined_results, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.error(f"Failed to save combined results: {e}")
-    
+
     # Save final checkpoint
     save_checkpoint(
         project_path,
@@ -341,98 +289,119 @@ def run_visual_topic_pipeline(
             "scene_analysis_path": os.path.join(analysis_results_dir, "scene_analysis_results.json")
         }
     )
-    
+
     logger.info("Visual topic pipeline complete.")
     return combined_results
 
 
 def extract_key_insights(combined_results: Dict) -> Dict:
     """Extracts key insights from the combined analysis results.
-    
+
     This function processes the combined results to extract the most important
     insights, such as major topics, key visual elements, and significant moments.
-    
+
     Args:
         combined_results (Dict): The combined analysis results.
-        
+
     Returns:
         Dict: Dictionary containing extracted key insights.
     """
     logger.info("Extracting key insights from combined analysis results...")
-    
+
     insights = {
         "major_topics": [],
         "key_visual_elements": [],
         "significant_moments": [],
         "software_usage": []
     }
-    
+
     # Extract visual topic analysis
     visual_topic_analysis = combined_results.get("visual_topic_analysis", {})
-    
+
     # Get topics
     topics = visual_topic_analysis.get("topics", [])
     visual_topics = visual_topic_analysis.get("visual_topics", [])
     segments = visual_topic_analysis.get("segments", [])
-    
+
     # Process topics
     for topic in topics:
         topic_name = topic.get("topic", "Unknown")
         keywords = topic.get("words", [])
-        
+
         if topic_name != "Unknown" and keywords:
             insights["major_topics"].append({
                 "name": topic_name,
                 "keywords": keywords[:5]  # Top 5 keywords
             })
-    
+
     # Process visual topics
     for topic in visual_topics:
         topic_name = topic.get("topic", "Unknown")
         keywords = topic.get("words", [])
-        
+
         if topic_name != "Unknown" and keywords:
             insights["key_visual_elements"].append({
                 "name": topic_name,
                 "keywords": keywords[:5]  # Top 5 keywords
             })
-    
-    # Find significant moments (segments with high confidence or clear topics)
+
+    # Find significant moments (segments with clear topics)
     for segment in segments:
         # Check if this segment has a clear topic and visual topic
-        if (segment.get("dominant_topic", "Unknown") != "Unknown" and 
-            segment.get("visual_topic", "Unknown") != "Unknown"):
-            
+        text_topic = segment.get("dominant_topic", "Unknown")
+        vis_topic = segment.get("visual_topic", "Unknown")
+
+        if text_topic != "Unknown" or vis_topic != "Unknown": # Consider significant if either topic is clear
             insights["significant_moments"].append({
                 "time_range": f"{segment.get('start_time', 0):.2f}s - {segment.get('end_time', 0):.2f}s",
-                "text_topic": segment.get("dominant_topic", "Unknown"),
-                "visual_topic": segment.get("visual_topic", "Unknown"),
+                "text_topic": text_topic,
+                "visual_topic": vis_topic,
                 "visual_summary": segment.get("visual_summary", "")[:100] + "..." if len(segment.get("visual_summary", "")) > 100 else segment.get("visual_summary", "")
             })
-    
-    # Extract software usage from scene analysis
+
+    # Extract software usage from scene analysis results within combined_results
+    # Ensure the path to scene_analysis_results is correct
     scene_analysis = combined_results.get("scene_analysis", {})
-    if "scene_analysis_results" in combined_results:
-        for scene in combined_results.get("scene_analysis_results", []):
-            detected_software = scene.get("detected_software", [])
-            if detected_software:
+    scene_analysis_results = scene_analysis.get("scene_analysis_results", []) # Get the actual results list
+
+    if scene_analysis_results: # Check if the list exists and is not empty
+        for scene in scene_analysis_results:
+            # Need to access detected software within each frame analysis inside a scene
+            frame_analyses = scene.get("frame_analyses", [])
+            detected_software_in_scene = set() # Use a set to avoid duplicates within a scene
+            for frame in frame_analyses:
+                 detected_software_in_frame = frame.get("detected_software", [])
+                 for sw_info in detected_software_in_frame:
+                     # Assuming sw_info is a dictionary {'name': '...', ...} or just a string
+                     if isinstance(sw_info, dict):
+                         detected_software_in_scene.add(sw_info.get('name'))
+                     elif isinstance(sw_info, str):
+                         detected_software_in_scene.add(sw_info)
+
+            # Now process the unique software found in the scene
+            if detected_software_in_scene:
                 start_time = scene.get("start_time", 0)
                 end_time = scene.get("end_time", 0)
-                
-                for software in detected_software:
+                time_range_str = f"{start_time:.2f}s - {end_time:.2f}s"
+
+                for software_name in detected_software_in_scene:
+                    if not software_name: # Skip if name is None or empty
+                        continue
                     # Check if this software is already in our list
-                    existing = next((item for item in insights["software_usage"] if item["name"] == software), None)
-                    
+                    existing = next((item for item in insights["software_usage"] if item["name"] == software_name), None)
+
                     if existing:
-                        # Add this time range to existing entry
-                        existing["time_ranges"].append(f"{start_time:.2f}s - {end_time:.2f}s")
+                        # Add this time range if not already present for this software
+                        if time_range_str not in existing["time_ranges"]:
+                             existing["time_ranges"].append(time_range_str)
                     else:
                         # Create new entry
                         insights["software_usage"].append({
-                            "name": software,
-                            "time_ranges": [f"{start_time:.2f}s - {end_time:.2f}s"]
+                            "name": software_name,
+                            "time_ranges": [time_range_str]
                         })
-    
+
+
     # Limit the number of significant moments
     if len(insights["significant_moments"]) > 10:
         # Sort by duration (longer segments might be more significant)
@@ -441,6 +410,6 @@ def extract_key_insights(combined_results: Dict) -> Dict:
             reverse=True
         )
         insights["significant_moments"] = insights["significant_moments"][:10]
-    
+
     logger.info("Key insights extraction complete.")
     return insights
