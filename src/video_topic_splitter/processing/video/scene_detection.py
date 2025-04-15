@@ -526,17 +526,22 @@ def split_video_by_scenes(
 
         # `split_video_ffmpeg` returns paths based on the template.
         # Convert to absolute paths and verify existence/size.
+        # `split_video_ffmpeg` returns paths based on the template.
+        # Convert to absolute paths and verify existence/size.
         created_files_abs = []
         expected_count = len(scene_list_timecodes)
         actual_count = 0
 
-        # Generate expected filenames based on the template and scene count
-        # Note: $SCENE_NUMBER is 1-based in the template
+        # Generate expected filenames based on the template and scene count,
+        # replicating the padding logic used by split_video_ffmpeg.
+        # Padding is at least 3 digits, or more if scene count exceeds 999.
+        padding = max(3, len(str(expected_count)))
         expected_filenames = [
-            full_output_template.replace('$SCENE_NUMBER', str(i + 1))
+            full_output_template.replace('$SCENE_NUMBER', str(i + 1).zfill(padding))
             for i in range(expected_count)
         ]
 
+        # Now check the correctly formatted expected filenames
         for file_path in expected_filenames:
             abs_path = os.path.abspath(file_path)
             if os.path.exists(abs_path) and os.path.getsize(abs_path) > 0:
@@ -546,6 +551,13 @@ def split_video_by_scenes(
                 # Log missing/empty files even if show_output was False for ffmpeg
                 logger.warning(f"Expected split file not found or is empty: {abs_path}")
 
+        if actual_count != expected_count:
+             logger.warning(f"Video splitting possibly incomplete: Expected {expected_count} segment files, but found {actual_count} valid files in {output_dir}. Check FFmpeg logs (rerun with show_output=True if needed).")
+             # Depending on requirements, could raise an error here:
+             # raise RuntimeError(f"Failed to create all expected video segments. Found {actual_count}/{expected_count}.")
+
+        logger.info("Video splitting complete. Created %d segment file(s).", actual_count)
+        return created_files_abs
 
         if actual_count != expected_count:
              logger.warning(f"Video splitting possibly incomplete: Expected {expected_count} segment files, but found {actual_count} valid files in {output_dir}. Check FFmpeg logs (rerun with show_output=True if needed).")
