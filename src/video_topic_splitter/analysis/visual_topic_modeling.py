@@ -206,7 +206,10 @@ class VisualTopicAnalyzer(TopicAnalyzer):
                     logger.debug(f"LLM Raw Response for visual analysis: {response_text}")
                     
                     try:
-                        result = json.loads(response_text)
+                        # Clean up the response text to handle markdown code blocks
+                        cleaned_response = self._clean_json_response(response_text)
+                        
+                        result = json.loads(cleaned_response)
                         
                         # Validate expected keys for visual analysis
                         expected_keys = [
@@ -281,6 +284,45 @@ class VisualTopicAnalyzer(TopicAnalyzer):
                 "visual_summary": "Analysis failed after multiple attempts.",
                 "error": "Max retries exceeded",
             }
+    
+    def _clean_json_response(self, response_text: str) -> str:
+        """Cleans the JSON response by removing markdown code blocks and other non-JSON content.
+        
+        Args:
+            response_text (str): The raw response text from the LLM.
+            
+        Returns:
+            str: Cleaned JSON string.
+        """
+        # Remove markdown code blocks
+        if "```json" in response_text or "```" in response_text:
+            # Extract content between code blocks if present
+            import re
+            code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
+            matches = re.findall(code_block_pattern, response_text)
+            
+            if matches:
+                # Use the first code block found
+                return matches[0].strip()
+        
+        # If no code blocks or pattern doesn't match, try to find JSON content
+        # Look for opening brace
+        start_idx = response_text.find('{')
+        if start_idx >= 0:
+            # Find the matching closing brace
+            brace_count = 0
+            for i in range(start_idx, len(response_text)):
+                if response_text[i] == '{':
+                    brace_count += 1
+                elif response_text[i] == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        # Found the matching closing brace
+                        return response_text[start_idx:i+1]
+        
+        # If we can't find valid JSON structure, return the original
+        # (let the JSON parser handle the error)
+        return response_text
     
     def analyze_segment_with_visuals(
         self, 

@@ -399,8 +399,8 @@ def split_video_by_scenes(
     scene_list: List[Tuple[float, float]],
     output_dir: str,
     output_file_template: str = 'scene_$SCENE_NUMBER.mp4',
-    show_progress: bool = False,
-    show_output: bool = True, # Keep ffmpeg logs chatty by default
+    show_progress: bool = True,
+    show_output: bool = False, # Keep ffmpeg logs chatty by default
 ) -> List[str]:
     """Splits a video into multiple segment files based on detected scene boundaries.
 

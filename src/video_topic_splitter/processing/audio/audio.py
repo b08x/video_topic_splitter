@@ -199,13 +199,13 @@ def changed_working_directory(new_dir):
         os.chdir(old_dir)
 
 
-def remove_silence(input_file, output_file, audible_speed=2, silent_speed=8):
+def remove_silence(input_file, output_file, audible_speed=1, silent_speed=1.5):
     """
     Adjusts audio speed, speeding up silent parts more than audible parts,
     using the 'unsilence' library.
 
     This function detects silence in the input audio and renders a new audio
-    file where silent segments are sped up significantly more than audible
+    file where silent segments are sped up significansummartly more than audible
     segments, effectively shortening the total duration while preserving
     the audible content at a faster pace. It requires the 'unsilence'
     library and its dependencies (like ffmpeg).

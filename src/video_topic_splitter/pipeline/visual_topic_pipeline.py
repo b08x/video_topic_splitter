@@ -195,31 +195,116 @@ def run_visual_topic_pipeline(
     
     # Step 2: Load transcript sentences
     transcript_path = os.path.join(project_path, "transcript", "transcript_sentences.json")
+    transcript_sentences = []
+    
     if not os.path.exists(transcript_path):
-        logger.error(f"Transcript sentences not found at: {transcript_path}")
-        raise FileNotFoundError(f"Transcript sentences file not found: {transcript_path}")
-    
-    logger.info(f"Loading transcript sentences from: {transcript_path}")
-    transcript_sentences = load_transcript_sentences(transcript_path)
-    
-    if not transcript_sentences:
-        logger.error("No transcript sentences loaded. Cannot proceed with topic modeling.")
-        raise ValueError("Empty transcript sentences list")
+        logger.warning(f"Transcript sentences not found at: {transcript_path}")
+        logger.info("Creating transcript directory and empty transcript file...")
+        
+        # Create transcript directory if it doesn't exist
+        transcript_dir = os.path.dirname(transcript_path)
+        os.makedirs(transcript_dir, exist_ok=True)
+        
+        # Create an empty transcript file with basic structure
+        empty_transcript = []
+        
+        # If we have scene analysis results, create placeholder transcript sentences
+        # based on scene boundaries to provide some structure
+        if scene_analysis_results:
+            logger.info("Creating placeholder transcript sentences based on scene boundaries...")
+            for scene in scene_analysis_results:
+                scene_id = scene.get("scene_id")
+                start_time = scene.get("start_time", 0)
+                end_time = scene.get("end_time", 0)
+                
+                # Create a placeholder sentence for this scene
+                # Include both 'text' and 'content' fields to ensure compatibility
+                placeholder_sentence = {
+                    "start": start_time,
+                    "end": end_time,
+                    "text": f"Scene {scene_id} visual content",
+                    "content": f"Scene {scene_id} visual content",  # Add content field for topic modeling
+                    "scene_id": scene_id,
+                    "is_placeholder": True  # Mark as placeholder
+                }
+                empty_transcript.append(placeholder_sentence)
+        
+        # Save the empty/placeholder transcript
+        try:
+            with open(transcript_path, 'w', encoding='utf-8') as f:
+                json.dump(empty_transcript, f, indent=2, ensure_ascii=False)
+            logger.info(f"Created empty transcript file at: {transcript_path}")
+            transcript_sentences = empty_transcript
+        except Exception as e:
+            logger.error(f"Failed to create empty transcript file: {e}")
+            # Continue with empty transcript list
+    else:
+        logger.info(f"Loading transcript sentences from: {transcript_path}")
+        try:
+            transcript_sentences = load_transcript_sentences(transcript_path)
+            
+            # Ensure each sentence has a 'content' field (required by topic modeling)
+            for sentence in transcript_sentences:
+                if "content" not in sentence and "text" in sentence:
+                    sentence["content"] = sentence["text"]
+                    
+        except Exception as e:
+            logger.error(f"Failed to load transcript sentences: {e}")
+            # Continue with empty transcript list
     
     # Step 3: Prepare visual frames for topic modeling
     visual_frames = prepare_visual_frames_for_topic_modeling(scene_analysis_results)
     
     if not visual_frames:
         logger.warning("No visual frames prepared. Topic modeling will rely solely on transcript.")
+        
+        # If we have no visual frames and no transcript, we can't proceed with topic modeling
+        if not transcript_sentences:
+            logger.error("No visual frames and no transcript sentences. Cannot proceed with topic modeling.")
+            
+            # Return just the scene analysis results
+            combined_results = {
+                "scene_analysis": {
+                    "total_scenes": len(scene_analysis_results),
+                    "total_frames_analyzed": sum(len(scene.get("frame_analyses", [])) for scene in scene_analysis_results),
+                    "scene_analysis_results": scene_analysis_results
+                },
+                "metadata": {
+                    "input_video": input_video,
+                    "frames_per_scene": frames_per_scene,
+                    "register": register,
+                    "ocr_language": ocr_lang,
+                    "error": "No transcript or visual frames available for topic modeling"
+                }
+            }
+            
+            # Save the results
+            combined_results_path = os.path.join(project_path, "combined_analysis_results.json")
+            try:
+                with open(combined_results_path, 'w', encoding='utf-8') as f:
+                    json.dump(combined_results, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                logger.error(f"Failed to save combined results: {e}")
+                
+            return combined_results
     
     # Step 4: Run visual topic modeling
     logger.info("Running visual topic modeling...")
-    visual_topic_results = process_transcript_with_visuals(
-        transcript_sentences=transcript_sentences,
-        visual_frames=visual_frames,
-        project_path=project_path,
-        register=register
-    )
+    try:
+        visual_topic_results = process_transcript_with_visuals(
+            transcript_sentences=transcript_sentences,
+            visual_frames=visual_frames,
+            project_path=project_path,
+            register=register
+        )
+    except Exception as e:
+        logger.error(f"Visual topic modeling failed: {e}", exc_info=True)
+        visual_topic_results = {
+            "error": f"Topic modeling failed: {str(e)}",
+            "topics": [],
+            "visual_topics": [],
+            "segments": []
+        }
     
     # Step 5: Save combined results
     combined_results_path = os.path.join(project_path, "combined_analysis_results.json")
@@ -229,7 +314,8 @@ def run_visual_topic_pipeline(
         "visual_topic_analysis": visual_topic_results,
         "scene_analysis": {
             "total_scenes": len(scene_analysis_results),
-            "total_frames_analyzed": sum(len(scene.get("frame_analyses", [])) for scene in scene_analysis_results)
+            "total_frames_analyzed": sum(len(scene.get("frame_analyses", [])) for scene in scene_analysis_results),
+            "scene_analysis_results": scene_analysis_results
         },
         "metadata": {
             "input_video": input_video,
@@ -248,8 +334,8 @@ def run_visual_topic_pipeline(
     # Save final checkpoint
     save_checkpoint(
         project_path,
-        {
-            "stage": CHECKPOINTS["VISUAL_TOPIC_PIPELINE_COMPLETE"],
+        CHECKPOINTS["VISUAL_TOPIC_PIPELINE_COMPLETE"],  # Pass the stage as the second parameter
+        {  # Pass the data as the third parameter
             "combined_results_path": combined_results_path,
             "visual_topic_results_path": visual_topic_results_path,
             "scene_analysis_path": os.path.join(analysis_results_dir, "scene_analysis_results.json")
