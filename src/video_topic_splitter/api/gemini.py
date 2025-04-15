@@ -19,7 +19,7 @@ class GeminiClient:
     """
 
     def __init__(self, 
-                 api_key: os.getenv("GEMINI_API_KEY"), 
+                 api_key: str, 
                  model_name: str = "gemini-1.5-flash", 
                  rate_limit_requests: int = 15,
                  rate_limit_period: int = 60,
