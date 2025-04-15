@@ -1,10 +1,8 @@
 # __init__.py
-"""
-Video Topic Splitter - A tool for segmenting videos based on topic analysis.
-"""
+# Import the main class from the core module
+from .core import VideoProcessor
 
-from video_topic_splitter.core import process_video
-from video_topic_splitter.project import (create_project_folder,
-                                          load_checkpoint, save_checkpoint)
+# Optionally define __all__ if you want to control `from video_topic_splitter import *`
+__all__ = ["VideoProcessor"]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

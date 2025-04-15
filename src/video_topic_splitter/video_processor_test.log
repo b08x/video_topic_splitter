@@ -1,0 +1,329 @@
+2025-04-15 06:06:17,194 - __main__ - INFO - Initializing Gemini client with model: gemini-pro-vision
+2025-04-15 06:06:17,194 - video_topic_splitter.api.gemini - INFO - Successfully initialized Gemini client with model: gemini-pro-vision
+2025-04-15 06:06:17,194 - __main__ - INFO - Initializing VideoProcessor
+2025-04-15 06:06:17,195 - __main__ - INFO - Processing video: /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4
+2025-04-15 06:06:17,195 - video_topic_splitter.core - INFO - Processing video: /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4
+2025-04-15 06:06:17,195 - video_topic_splitter.core - INFO - Requesting transcript and scene boundaries from Gemini...
+2025-04-15 06:06:17,195 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4
+2025-04-15 06:06:17,196 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmppayi3jr6
+2025-04-15 06:06:17,196 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4 -vf fps=0.5 -q:v 2 /tmp/tmppayi3jr6/frame_%04d.jpg
+2025-04-15 06:07:03,780 - video_topic_splitter.api.gemini - INFO - Extracted 147 frames from video
+2025-04-15 06:07:03,780 - video_topic_splitter.api.gemini - INFO - Selected 10 frames for analysis
+2025-04-15 06:07:03,819 - video_topic_splitter.api.gemini - INFO - Sending 10 video frames with prompt to Gemini API
+2025-04-15 06:07:05,407 - video_topic_splitter.api.gemini - ERROR - Error processing video for Gemini analysis: 404 Gemini 1.0 Pro Vision has been deprecated on July 12, 2024. Consider switching to different model, for example gemini-1.5-flash.
+Traceback (most recent call last):
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/src/video_topic_splitter/api/gemini.py", line 174, in _process_video
+    response = self.model.generate_content(content)
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/generativeai/generative_models.py", line 331, in generate_content
+    response = self._client.generate_content(
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/ai/generativelanguage_v1beta/services/generative_service/client.py", line 835, in generate_content
+    response = rpc(
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/gapic_v1/method.py", line 131, in __call__
+    return wrapped_func(*args, **kwargs)
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/retry/retry_unary.py", line 293, in retry_wrapped_func
+    return retry_target(
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/retry/retry_unary.py", line 153, in retry_target
+    _retry_error_helper(
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/retry/retry_base.py", line 212, in _retry_error_helper
+    raise final_exc from source_exc
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/retry/retry_unary.py", line 144, in retry_target
+    result = target()
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/timeout.py", line 130, in func_with_timeout
+    return func(*args, **kwargs)
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/grpc_helpers.py", line 78, in error_remapped_callable
+    raise exceptions.from_grpc_error(exc) from exc
+google.api_core.exceptions.NotFound: 404 Gemini 1.0 Pro Vision has been deprecated on July 12, 2024. Consider switching to different model, for example gemini-1.5-flash.
+2025-04-15 06:07:05,410 - video_topic_splitter.core - ERROR - Gemini analysis failed early: Analysis failed: Error processing video: 404 Gemini 1.0 Pro Vision has been deprecated on July 12, 2024. Consider switching to different model, for example gemini-1.5-flash.
+2025-04-15 06:07:05,419 - video_topic_splitter.core - INFO - Successfully wrote analysis results to /home/b08x/Videos/test/analysis_results.json
+2025-04-15 06:07:05,420 - __main__ - ERROR - Video processing failed
+2025-04-15 06:07:05,420 - __main__ - INFO - Test completed
+2025-04-15 06:07:33,421 - __main__ - INFO - Initializing Gemini client with model: gemini-pro-vision
+2025-04-15 06:07:33,421 - video_topic_splitter.api.gemini - INFO - Successfully initialized Gemini client with model: gemini-pro-vision
+2025-04-15 06:07:33,421 - __main__ - INFO - Initializing VideoProcessor
+2025-04-15 06:07:33,422 - __main__ - INFO - Processing video: /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4
+2025-04-15 06:07:33,422 - video_topic_splitter.core - INFO - Processing video: /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4
+2025-04-15 06:07:33,422 - video_topic_splitter.core - INFO - Requesting transcript and scene boundaries from Gemini...
+2025-04-15 06:07:33,422 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4
+2025-04-15 06:07:33,422 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpa6fnqpfu
+2025-04-15 06:07:33,423 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpa6fnqpfu/frame_%04d.jpg
+2025-04-15 06:07:55,106 - video_topic_splitter.api.gemini - INFO - Extracted 147 frames from video
+2025-04-15 06:07:55,106 - video_topic_splitter.api.gemini - INFO - Selected 10 frames for analysis
+2025-04-15 06:07:55,117 - video_topic_splitter.api.gemini - INFO - Sending 10 video frames with prompt to Gemini API
+2025-04-15 06:07:56,295 - video_topic_splitter.api.gemini - ERROR - Error processing video for Gemini analysis: 404 Gemini 1.0 Pro Vision has been deprecated on July 12, 2024. Consider switching to different model, for example gemini-1.5-flash.
+Traceback (most recent call last):
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/src/video_topic_splitter/api/gemini.py", line 174, in _process_video
+    response = self.model.generate_content(content)
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/generativeai/generative_models.py", line 331, in generate_content
+    response = self._client.generate_content(
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/ai/generativelanguage_v1beta/services/generative_service/client.py", line 835, in generate_content
+    response = rpc(
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/gapic_v1/method.py", line 131, in __call__
+    return wrapped_func(*args, **kwargs)
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/retry/retry_unary.py", line 293, in retry_wrapped_func
+    return retry_target(
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/retry/retry_unary.py", line 153, in retry_target
+    _retry_error_helper(
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/retry/retry_base.py", line 212, in _retry_error_helper
+    raise final_exc from source_exc
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/retry/retry_unary.py", line 144, in retry_target
+    result = target()
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/timeout.py", line 130, in func_with_timeout
+    return func(*args, **kwargs)
+  File "/home/b08x/Workspace/Syncopated/syncopated-ai/video_topic_splitter/.venv/lib/python3.10/site-packages/google/api_core/grpc_helpers.py", line 78, in error_remapped_callable
+    raise exceptions.from_grpc_error(exc) from exc
+google.api_core.exceptions.NotFound: 404 Gemini 1.0 Pro Vision has been deprecated on July 12, 2024. Consider switching to different model, for example gemini-1.5-flash.
+2025-04-15 06:07:56,297 - video_topic_splitter.core - ERROR - Gemini analysis failed early: Analysis failed: Error processing video: 404 Gemini 1.0 Pro Vision has been deprecated on July 12, 2024. Consider switching to different model, for example gemini-1.5-flash.
+2025-04-15 06:07:56,297 - video_topic_splitter.core - INFO - Successfully wrote analysis results to /home/b08x/Videos/test/analysis_results.json
+2025-04-15 06:07:56,298 - __main__ - ERROR - Video processing failed
+2025-04-15 06:07:56,298 - __main__ - INFO - Test completed
+2025-04-15 06:08:23,066 - __main__ - INFO - Initializing Gemini client with model: gemini-1.5-flash.
+2025-04-15 06:08:23,067 - video_topic_splitter.api.gemini - INFO - Successfully initialized Gemini client with model: gemini-1.5-flash.
+2025-04-15 06:08:23,067 - __main__ - INFO - Initializing VideoProcessor
+2025-04-15 06:08:23,067 - __main__ - INFO - Processing video: /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4
+2025-04-15 06:08:23,067 - video_topic_splitter.core - INFO - Processing video: /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4
+2025-04-15 06:08:23,067 - video_topic_splitter.core - INFO - Requesting transcript and scene boundaries from Gemini...
+2025-04-15 06:08:23,067 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4
+2025-04-15 06:08:23,068 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpbmktpmxg
+2025-04-15 06:08:23,068 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpbmktpmxg/frame_%04d.jpg
+2025-04-15 06:08:26,848 - __main__ - INFO - Initializing Gemini client with model: gemini-1.5-flash
+2025-04-15 06:08:26,848 - video_topic_splitter.api.gemini - INFO - Successfully initialized Gemini client with model: gemini-1.5-flash
+2025-04-15 06:08:26,848 - __main__ - INFO - Initializing VideoProcessor
+2025-04-15 06:08:26,848 - __main__ - INFO - Processing video: /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4
+2025-04-15 06:08:26,848 - video_topic_splitter.core - INFO - Processing video: /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4
+2025-04-15 06:08:26,849 - video_topic_splitter.core - INFO - Requesting transcript and scene boundaries from Gemini...
+2025-04-15 06:08:26,849 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4
+2025-04-15 06:08:26,849 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpxagt8uo9
+2025-04-15 06:08:26,849 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/Video_2025-04-14_20-10-59_20250415_015624/split_videos/scene_001.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpxagt8uo9/frame_%04d.jpg
+2025-04-15 06:08:52,255 - video_topic_splitter.api.gemini - INFO - Extracted 147 frames from video
+2025-04-15 06:08:52,255 - video_topic_splitter.api.gemini - INFO - Selected 10 frames for analysis
+2025-04-15 06:08:52,269 - video_topic_splitter.api.gemini - INFO - Sending 10 video frames with prompt to Gemini API
+2025-04-15 06:08:57,036 - video_topic_splitter.core - INFO - Successfully parsed 0 transcript sentences
+2025-04-15 06:08:57,036 - video_topic_splitter.core - INFO - Successfully parsed 7 scene boundaries.
+2025-04-15 06:08:57,036 - video_topic_splitter.core - INFO - Checking for PySceneDetect results...
+2025-04-15 06:08:57,036 - video_topic_splitter.core - INFO - Found existing scene file: '/home/b08x/Videos/test/scene_detection/scenes.csv'. Attempting to load boundaries from it.
+2025-04-15 06:08:57,036 - video_topic_splitter.processing.video.scene_detection - INFO - Successfully read 16 scene boundaries from /home/b08x/Videos/test/scene_detection/scenes.csv (header on line 1)
+2025-04-15 06:08:57,036 - video_topic_splitter.core - INFO - Successfully loaded 16 scene boundaries from existing CSV.
+2025-04-15 06:08:57,036 - video_topic_splitter.core - INFO - Processing 16 detected scenes using boundaries from 'PySceneDetect (Existing CSV)'.
+2025-04-15 06:08:57,037 - video_topic_splitter.core - INFO - Processing Scene 1: 0.00s - 18.25s
+2025-04-15 06:08:57,037 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:08:57,037 - video_topic_splitter.core - INFO - Found 2 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_001/segment_*.mp4' in /home/b08x/Videos/test/scene_001.
+2025-04-15 06:08:57,037 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:08:59,723 - video_topic_splitter.core - INFO - Analyzing 2 segments for this scene...
+2025-04-15 06:08:59,725 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_001/segment_20250415044110_1.mp4. Performing analysis.
+2025-04-15 06:08:59,725 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_001/segment_20250415044110_1.mp4
+2025-04-15 06:08:59,726 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_001/segment_20250415044110_1.mp4
+2025-04-15 06:08:59,727 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpwfkvqer5
+2025-04-15 06:08:59,728 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_001/segment_20250415044110_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpwfkvqer5/frame_%04d.jpg
+2025-04-15 06:09:01,831 - video_topic_splitter.api.gemini - INFO - Extracted 5 frames from video
+2025-04-15 06:09:01,831 - video_topic_splitter.api.gemini - INFO - Selected 5 frames for analysis
+2025-04-15 06:09:01,834 - video_topic_splitter.api.gemini - INFO - Sending 5 video frames with prompt to Gemini API
+2025-04-15 06:09:06,039 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_001/segment_20250415044110_1_analysis.json
+2025-04-15 06:09:06,039 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_001/segment_20250415044702_1.mp4. Performing analysis.
+2025-04-15 06:09:06,039 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_001/segment_20250415044702_1.mp4
+2025-04-15 06:09:06,039 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_001/segment_20250415044702_1.mp4
+2025-04-15 06:09:06,040 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpj3gkhv4x
+2025-04-15 06:09:06,040 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_001/segment_20250415044702_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpj3gkhv4x/frame_%04d.jpg
+2025-04-15 06:09:09,056 - video_topic_splitter.api.gemini - INFO - Extracted 9 frames from video
+2025-04-15 06:09:09,056 - video_topic_splitter.api.gemini - INFO - Selected 9 frames for analysis
+2025-04-15 06:09:09,058 - video_topic_splitter.api.gemini - INFO - Sending 9 video frames with prompt to Gemini API
+2025-04-15 06:09:15,474 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_001/segment_20250415044702_1_analysis.json
+2025-04-15 06:09:15,474 - video_topic_splitter.core - INFO - Processing Scene 2: 18.25s - 235.07s
+2025-04-15 06:09:15,474 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:09:15,474 - video_topic_splitter.core - INFO - Found 1 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_002/segment_*.mp4' in /home/b08x/Videos/test/scene_002.
+2025-04-15 06:09:15,474 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:09:16,473 - video_topic_splitter.core - INFO - Analyzing 1 segments for this scene...
+2025-04-15 06:09:16,474 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_002/segment_20250415044742_1.mp4. Performing analysis.
+2025-04-15 06:09:16,474 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_002/segment_20250415044742_1.mp4
+2025-04-15 06:09:16,474 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_002/segment_20250415044742_1.mp4
+2025-04-15 06:09:16,475 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmphwvjo73q
+2025-04-15 06:09:16,475 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_002/segment_20250415044742_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmphwvjo73q/frame_%04d.jpg
+2025-04-15 06:09:33,150 - video_topic_splitter.api.gemini - INFO - Extracted 108 frames from video
+2025-04-15 06:09:33,150 - video_topic_splitter.api.gemini - INFO - Selected 10 frames for analysis
+2025-04-15 06:09:33,151 - video_topic_splitter.api.gemini - INFO - Sending 10 video frames with prompt to Gemini API
+2025-04-15 06:09:38,008 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_002/segment_20250415044742_1_analysis.json
+2025-04-15 06:09:38,009 - video_topic_splitter.core - INFO - Processing Scene 3: 235.07s - 238.94s
+2025-04-15 06:09:38,009 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:09:38,009 - video_topic_splitter.core - INFO - Found 1 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_003/segment_*.mp4' in /home/b08x/Videos/test/scene_003.
+2025-04-15 06:09:38,009 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:09:38,607 - video_topic_splitter.core - INFO - Analyzing 1 segments for this scene...
+2025-04-15 06:09:38,607 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_003/segment_20250415044827_1.mp4. Performing analysis.
+2025-04-15 06:09:38,608 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_003/segment_20250415044827_1.mp4
+2025-04-15 06:09:38,608 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_003/segment_20250415044827_1.mp4
+2025-04-15 06:09:38,608 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpvvw2sar_
+2025-04-15 06:09:38,608 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_003/segment_20250415044827_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpvvw2sar_/frame_%04d.jpg
+2025-04-15 06:09:39,173 - video_topic_splitter.api.gemini - INFO - Extracted 2 frames from video
+2025-04-15 06:09:39,173 - video_topic_splitter.api.gemini - INFO - Selected 2 frames for analysis
+2025-04-15 06:09:39,173 - video_topic_splitter.api.gemini - INFO - Sending 2 video frames with prompt to Gemini API
+2025-04-15 06:09:41,162 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_003/segment_20250415044827_1_analysis.json
+2025-04-15 06:09:41,162 - video_topic_splitter.core - INFO - Processing Scene 4: 238.94s - 254.32s
+2025-04-15 06:09:41,162 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:09:41,162 - video_topic_splitter.core - INFO - Found 1 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_004/segment_*.mp4' in /home/b08x/Videos/test/scene_004.
+2025-04-15 06:09:41,162 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:09:42,136 - video_topic_splitter.core - INFO - Analyzing 1 segments for this scene...
+2025-04-15 06:09:42,136 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_004/segment_20250415044912_1.mp4. Performing analysis.
+2025-04-15 06:09:42,136 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_004/segment_20250415044912_1.mp4
+2025-04-15 06:09:42,137 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_004/segment_20250415044912_1.mp4
+2025-04-15 06:09:42,137 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpsdpwchem
+2025-04-15 06:09:42,138 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_004/segment_20250415044912_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpsdpwchem/frame_%04d.jpg
+2025-04-15 06:09:44,438 - video_topic_splitter.api.gemini - INFO - Extracted 8 frames from video
+2025-04-15 06:09:44,439 - video_topic_splitter.api.gemini - INFO - Selected 8 frames for analysis
+2025-04-15 06:09:44,440 - video_topic_splitter.api.gemini - INFO - Sending 8 video frames with prompt to Gemini API
+2025-04-15 06:09:47,894 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_004/segment_20250415044912_1_analysis.json
+2025-04-15 06:09:47,894 - video_topic_splitter.core - INFO - Processing Scene 5: 254.32s - 255.29s
+2025-04-15 06:09:47,894 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:09:47,894 - video_topic_splitter.core - INFO - No existing segments found. Proceeding with segmentation.
+2025-04-15 06:09:47,894 - video_topic_splitter.core - INFO - No silent periods detected, creating one segment for the range.
+2025-04-15 06:09:47,894 - video_topic_splitter.core - WARNING - No valid segment timestamps remained after filtering short durations.
+2025-04-15 06:09:47,894 - video_topic_splitter.core - WARNING - No segments were created or found for this scene.
+2025-04-15 06:09:47,894 - video_topic_splitter.core - INFO - Processing Scene 6: 255.29s - 257.46s
+2025-04-15 06:09:47,895 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:09:47,895 - video_topic_splitter.core - INFO - Found 1 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_006/segment_*.mp4' in /home/b08x/Videos/test/scene_006.
+2025-04-15 06:09:47,895 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:09:48,892 - video_topic_splitter.core - INFO - Analyzing 1 segments for this scene...
+2025-04-15 06:09:48,892 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_006/segment_20250415045000_1.mp4. Performing analysis.
+2025-04-15 06:09:48,892 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_006/segment_20250415045000_1.mp4
+2025-04-15 06:09:48,892 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_006/segment_20250415045000_1.mp4
+2025-04-15 06:09:48,893 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpb8297t3y
+2025-04-15 06:09:48,893 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_006/segment_20250415045000_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpb8297t3y/frame_%04d.jpg
+2025-04-15 06:09:49,819 - video_topic_splitter.api.gemini - INFO - Extracted 1 frames from video
+2025-04-15 06:09:49,819 - video_topic_splitter.api.gemini - INFO - Selected 1 frames for analysis
+2025-04-15 06:09:49,820 - video_topic_splitter.api.gemini - INFO - Sending 1 video frames with prompt to Gemini API
+2025-04-15 06:09:52,131 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_006/segment_20250415045000_1_analysis.json
+2025-04-15 06:09:52,131 - video_topic_splitter.core - INFO - Processing Scene 7: 257.46s - 263.90s
+2025-04-15 06:09:52,131 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:09:52,131 - video_topic_splitter.core - INFO - Found 1 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_007/segment_*.mp4' in /home/b08x/Videos/test/scene_007.
+2025-04-15 06:09:52,131 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:09:53,476 - video_topic_splitter.core - INFO - Analyzing 1 segments for this scene...
+2025-04-15 06:09:53,476 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_007/segment_20250415045046_1.mp4. Performing analysis.
+2025-04-15 06:09:53,476 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_007/segment_20250415045046_1.mp4
+2025-04-15 06:09:53,477 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_007/segment_20250415045046_1.mp4
+2025-04-15 06:09:53,477 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpqv376n45
+2025-04-15 06:09:53,478 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_007/segment_20250415045046_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpqv376n45/frame_%04d.jpg
+2025-04-15 06:09:55,219 - video_topic_splitter.api.gemini - INFO - Extracted 3 frames from video
+2025-04-15 06:09:55,219 - video_topic_splitter.api.gemini - INFO - Selected 3 frames for analysis
+2025-04-15 06:09:55,220 - video_topic_splitter.api.gemini - INFO - Sending 3 video frames with prompt to Gemini API
+2025-04-15 06:09:57,411 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_007/segment_20250415045046_1_analysis.json
+2025-04-15 06:09:57,411 - video_topic_splitter.core - INFO - Processing Scene 8: 263.90s - 264.87s
+2025-04-15 06:09:57,412 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:09:57,412 - video_topic_splitter.core - INFO - No existing segments found. Proceeding with segmentation.
+2025-04-15 06:09:57,412 - video_topic_splitter.core - INFO - No silent periods detected, creating one segment for the range.
+2025-04-15 06:09:57,412 - video_topic_splitter.core - WARNING - No valid segment timestamps remained after filtering short durations.
+2025-04-15 06:09:57,412 - video_topic_splitter.core - WARNING - No segments were created or found for this scene.
+2025-04-15 06:09:57,412 - video_topic_splitter.core - INFO - Processing Scene 9: 264.87s - 266.67s
+2025-04-15 06:09:57,412 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:09:57,412 - video_topic_splitter.core - INFO - Found 1 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_009/segment_*.mp4' in /home/b08x/Videos/test/scene_009.
+2025-04-15 06:09:57,413 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:09:58,855 - video_topic_splitter.core - INFO - Analyzing 1 segments for this scene...
+2025-04-15 06:09:58,855 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_009/segment_20250415045142_1.mp4. Performing analysis.
+2025-04-15 06:09:58,855 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_009/segment_20250415045142_1.mp4
+2025-04-15 06:09:58,855 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_009/segment_20250415045142_1.mp4
+2025-04-15 06:09:58,856 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmph9xw16el
+2025-04-15 06:09:58,856 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_009/segment_20250415045142_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmph9xw16el/frame_%04d.jpg
+2025-04-15 06:10:00,005 - video_topic_splitter.api.gemini - INFO - Extracted 1 frames from video
+2025-04-15 06:10:00,006 - video_topic_splitter.api.gemini - INFO - Selected 1 frames for analysis
+2025-04-15 06:10:00,006 - video_topic_splitter.api.gemini - INFO - Sending 1 video frames with prompt to Gemini API
+2025-04-15 06:10:02,587 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_009/segment_20250415045142_1_analysis.json
+2025-04-15 06:10:02,589 - video_topic_splitter.core - INFO - Processing Scene 10: 266.67s - 267.77s
+2025-04-15 06:10:02,590 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:10:02,590 - video_topic_splitter.core - INFO - Found 1 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_010/segment_*.mp4' in /home/b08x/Videos/test/scene_010.
+2025-04-15 06:10:02,591 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:10:04,453 - video_topic_splitter.core - INFO - Analyzing 1 segments for this scene...
+2025-04-15 06:10:04,454 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_010/segment_20250415045235_1.mp4. Performing analysis.
+2025-04-15 06:10:04,454 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_010/segment_20250415045235_1.mp4
+2025-04-15 06:10:04,454 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_010/segment_20250415045235_1.mp4
+2025-04-15 06:10:04,454 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmp3tm4ddo1
+2025-04-15 06:10:04,454 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_010/segment_20250415045235_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmp3tm4ddo1/frame_%04d.jpg
+2025-04-15 06:10:05,537 - video_topic_splitter.api.gemini - INFO - Extracted 1 frames from video
+2025-04-15 06:10:05,537 - video_topic_splitter.api.gemini - INFO - Selected 1 frames for analysis
+2025-04-15 06:10:05,537 - video_topic_splitter.api.gemini - INFO - Sending 1 video frames with prompt to Gemini API
+2025-04-15 06:10:08,039 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_010/segment_20250415045235_1_analysis.json
+2025-04-15 06:10:08,039 - video_topic_splitter.core - INFO - Processing Scene 11: 267.77s - 269.27s
+2025-04-15 06:10:08,039 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:10:08,039 - video_topic_splitter.core - INFO - Found 1 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_011/segment_*.mp4' in /home/b08x/Videos/test/scene_011.
+2025-04-15 06:10:08,039 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:10:09,127 - video_topic_splitter.core - INFO - Analyzing 1 segments for this scene...
+2025-04-15 06:10:09,127 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_011/segment_20250415045320_1.mp4. Performing analysis.
+2025-04-15 06:10:09,127 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_011/segment_20250415045320_1.mp4
+2025-04-15 06:10:09,127 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_011/segment_20250415045320_1.mp4
+2025-04-15 06:10:09,128 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpofgj6b8q
+2025-04-15 06:10:09,128 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_011/segment_20250415045320_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpofgj6b8q/frame_%04d.jpg
+2025-04-15 06:10:10,229 - video_topic_splitter.api.gemini - INFO - Extracted 1 frames from video
+2025-04-15 06:10:10,230 - video_topic_splitter.api.gemini - INFO - Selected 1 frames for analysis
+2025-04-15 06:10:10,230 - video_topic_splitter.api.gemini - INFO - Sending 1 video frames with prompt to Gemini API
+2025-04-15 06:10:13,100 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_011/segment_20250415045320_1_analysis.json
+2025-04-15 06:10:13,100 - video_topic_splitter.core - INFO - Processing Scene 12: 269.27s - 270.47s
+2025-04-15 06:10:13,100 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:10:13,100 - video_topic_splitter.core - INFO - Found 1 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_012/segment_*.mp4' in /home/b08x/Videos/test/scene_012.
+2025-04-15 06:10:13,101 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:10:13,927 - video_topic_splitter.core - INFO - Analyzing 1 segments for this scene...
+2025-04-15 06:10:13,927 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_012/segment_20250415045404_1.mp4. Performing analysis.
+2025-04-15 06:10:13,927 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_012/segment_20250415045404_1.mp4
+2025-04-15 06:10:13,928 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_012/segment_20250415045404_1.mp4
+2025-04-15 06:10:13,928 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpy57yyedy
+2025-04-15 06:10:13,928 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_012/segment_20250415045404_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpy57yyedy/frame_%04d.jpg
+2025-04-15 06:10:14,446 - video_topic_splitter.api.gemini - INFO - Extracted 1 frames from video
+2025-04-15 06:10:14,447 - video_topic_splitter.api.gemini - INFO - Selected 1 frames for analysis
+2025-04-15 06:10:14,447 - video_topic_splitter.api.gemini - INFO - Sending 1 video frames with prompt to Gemini API
+2025-04-15 06:10:16,940 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_012/segment_20250415045404_1_analysis.json
+2025-04-15 06:10:16,940 - video_topic_splitter.core - INFO - Processing Scene 13: 270.47s - 271.98s
+2025-04-15 06:10:16,940 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:10:16,941 - video_topic_splitter.core - INFO - Found 1 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_013/segment_*.mp4' in /home/b08x/Videos/test/scene_013.
+2025-04-15 06:10:16,941 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:10:17,615 - video_topic_splitter.core - INFO - Analyzing 1 segments for this scene...
+2025-04-15 06:10:17,615 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_013/segment_20250415045446_1.mp4. Performing analysis.
+2025-04-15 06:10:17,615 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_013/segment_20250415045446_1.mp4
+2025-04-15 06:10:17,615 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_013/segment_20250415045446_1.mp4
+2025-04-15 06:10:17,615 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpbl2l7hxf
+2025-04-15 06:10:17,615 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_013/segment_20250415045446_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpbl2l7hxf/frame_%04d.jpg
+2025-04-15 06:10:18,148 - video_topic_splitter.api.gemini - INFO - Extracted 1 frames from video
+2025-04-15 06:10:18,148 - video_topic_splitter.api.gemini - INFO - Selected 1 frames for analysis
+2025-04-15 06:10:18,148 - video_topic_splitter.api.gemini - INFO - Sending 1 video frames with prompt to Gemini API
+2025-04-15 06:10:20,777 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_013/segment_20250415045446_1_analysis.json
+2025-04-15 06:10:20,777 - video_topic_splitter.core - INFO - Processing Scene 14: 271.98s - 277.21s
+2025-04-15 06:10:20,778 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:10:20,778 - video_topic_splitter.core - INFO - Found 1 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_014/segment_*.mp4' in /home/b08x/Videos/test/scene_014.
+2025-04-15 06:10:20,778 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:10:21,440 - video_topic_splitter.core - INFO - Analyzing 1 segments for this scene...
+2025-04-15 06:10:21,440 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_014/segment_20250415045539_1.mp4. Performing analysis.
+2025-04-15 06:10:21,440 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_014/segment_20250415045539_1.mp4
+2025-04-15 06:10:21,441 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_014/segment_20250415045539_1.mp4
+2025-04-15 06:10:21,441 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpjd8bxahw
+2025-04-15 06:10:21,441 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_014/segment_20250415045539_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpjd8bxahw/frame_%04d.jpg
+2025-04-15 06:10:22,411 - video_topic_splitter.api.gemini - INFO - Extracted 3 frames from video
+2025-04-15 06:10:22,411 - video_topic_splitter.api.gemini - INFO - Selected 3 frames for analysis
+2025-04-15 06:10:22,412 - video_topic_splitter.api.gemini - INFO - Sending 3 video frames with prompt to Gemini API
+2025-04-15 06:10:24,642 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_014/segment_20250415045539_1_analysis.json
+2025-04-15 06:10:24,643 - video_topic_splitter.core - INFO - Processing Scene 15: 277.21s - 279.62s
+2025-04-15 06:10:24,643 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:10:24,643 - video_topic_splitter.core - INFO - Found 1 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_015/segment_*.mp4' in /home/b08x/Videos/test/scene_015.
+2025-04-15 06:10:24,643 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:10:25,956 - video_topic_splitter.core - INFO - Analyzing 1 segments for this scene...
+2025-04-15 06:10:25,956 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_015/segment_20250415045627_1.mp4. Performing analysis.
+2025-04-15 06:10:25,956 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_015/segment_20250415045627_1.mp4
+2025-04-15 06:10:25,956 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_015/segment_20250415045627_1.mp4
+2025-04-15 06:10:25,957 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpw204vj4y
+2025-04-15 06:10:25,957 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_015/segment_20250415045627_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpw204vj4y/frame_%04d.jpg
+2025-04-15 06:10:27,404 - video_topic_splitter.api.gemini - INFO - Extracted 1 frames from video
+2025-04-15 06:10:27,404 - video_topic_splitter.api.gemini - INFO - Selected 1 frames for analysis
+2025-04-15 06:10:27,405 - video_topic_splitter.api.gemini - INFO - Sending 1 video frames with prompt to Gemini API
+2025-04-15 06:10:29,674 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_015/segment_20250415045627_1_analysis.json
+2025-04-15 06:10:29,674 - video_topic_splitter.core - INFO - Processing Scene 16: 279.62s - 294.40s
+2025-04-15 06:10:29,674 - video_topic_splitter.core - INFO - Filtered transcript contains 0 items for the current scene.
+2025-04-15 06:10:29,674 - video_topic_splitter.core - INFO - Found 1 existing segment file(s) matching pattern '/home/b08x/Videos/test/scene_016/segment_*.mp4' in /home/b08x/Videos/test/scene_016.
+2025-04-15 06:10:29,675 - video_topic_splitter.core - INFO - Using existing segment files instead of creating new ones.
+2025-04-15 06:10:30,466 - video_topic_splitter.core - INFO - Analyzing 1 segments for this scene...
+2025-04-15 06:10:30,466 - video_topic_splitter.core - INFO - No valid existing analysis found for /home/b08x/Videos/test/scene_016/segment_20250415045723_1.mp4. Performing analysis.
+2025-04-15 06:10:30,466 - video_topic_splitter.core - INFO - Analyzing segment: /home/b08x/Videos/test/scene_016/segment_20250415045723_1.mp4
+2025-04-15 06:10:30,466 - video_topic_splitter.api.gemini - INFO - Processing video file: /home/b08x/Videos/test/scene_016/segment_20250415045723_1.mp4
+2025-04-15 06:10:30,466 - video_topic_splitter.api.gemini - INFO - Created temporary directory for video frames: /tmp/tmpwply654n
+2025-04-15 06:10:30,466 - video_topic_splitter.api.gemini - INFO - Extracting frames with command: ffmpeg -i /home/b08x/Videos/test/scene_016/segment_20250415045723_1.mp4 -vf fps=0.5 -q:v 2 /tmp/tmpwply654n/frame_%04d.jpg
+2025-04-15 06:10:31,838 - video_topic_splitter.api.gemini - INFO - Extracted 7 frames from video
+2025-04-15 06:10:31,838 - video_topic_splitter.api.gemini - INFO - Selected 7 frames for analysis
+2025-04-15 06:10:31,839 - video_topic_splitter.api.gemini - INFO - Sending 7 video frames with prompt to Gemini API
+2025-04-15 06:10:34,411 - video_topic_splitter.core - INFO - Saved segment analysis to /home/b08x/Videos/test/scene_016/segment_20250415045723_1_analysis.json
+2025-04-15 06:10:34,411 - video_topic_splitter.core - INFO - Finished processing. Generated data for 15 segments.
+2025-04-15 06:10:34,412 - video_topic_splitter.core - INFO - Successfully wrote analysis results to /home/b08x/Videos/test/analysis_results.json
+2025-04-15 06:10:34,412 - __main__ - INFO - Video processing completed successfully
+2025-04-15 06:10:34,412 - __main__ - INFO - Generated 15 segments
+2025-04-15 06:10:34,413 - __main__ - INFO - Encountered 0 errors
+2025-04-15 06:10:34,413 - __main__ - INFO - Test completed
