@@ -318,13 +318,15 @@ def analyze_scenes(
             pbar.update(1)
 
     logger.info("Scene analysis complete.")
-    # --- Final Checkpoint (remains the same) ---
+    # --- Final Checkpoint ---
     logger.info("Saving final scene analysis checkpoint...")
     final_checkpoint_data = {
         "total_scenes_processed": len(analyzed_scene_results),
         "results_path": os.path.join(analysis_results_dir, "scene_analysis_results.json"),
         "scene_frames_dir": scene_frames_dir,
     }
-    save_checkpoint(project_path, CHECKPOINTS["SCENE_ANALYSIS_COMPLETE"], final_checkpoint_data)
+    # Use a direct string value instead of relying on CHECKPOINTS dictionary
+    # This matches the stage name used in core.py
+    save_checkpoint(project_path, "visual_analysis_complete", final_checkpoint_data)
 
     return analyzed_scene_results

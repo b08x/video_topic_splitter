@@ -303,6 +303,8 @@ def process_video(
     register: str = "it-workflow", # Default register
     visual_similarity_threshold: float = 0.6, # Default for VisualTopicAnalyzer
 ) -> Dict:
+    # Initialize transcript_path at the beginning of the function
+    transcript_path = os.path.join(project_path, "transcript.json")
     """
     Main unified pipeline function to process a video: download (optional),
     process audio, transcribe, detect scenes, perform visual analysis,
@@ -404,8 +406,7 @@ def process_video(
     # Check if both stages are complete based on the latest checkpoint
     if current_stage >= scenes_detected_stage or current_stage == NO_SCENES_DETECTED:
         logger.info("Attempting to load transcript and scene boundaries from previous stages...")
-        # Load transcript
-        transcript_path = os.path.join(project_path, "transcript.json")
+        # Load transcript (transcript_path already defined at function start)
         if os.path.exists(transcript_path):
              try:
                  transcript = load_transcript(transcript_path)

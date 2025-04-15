@@ -11,6 +11,7 @@ include both textual and visual context.
 import logging
 import os
 import json
+import re
 from typing import Dict, List, Optional, Tuple, Any
 import asyncio
 import numpy as np
@@ -99,6 +100,88 @@ def prepare_visual_frames_for_topic_modeling(
 
 
 class VisualTopicAnalyzer(TopicAnalyzer):
+    
+    def _safe_parse_json(self, response_text: str) -> Optional[Dict]:
+        """
+        Safely parse potentially incomplete JSON responses from LLM.
+        Attempts to fix common issues with truncated responses.
+        
+        Args:
+            response_text (str): The raw response text from the LLM.
+            
+        Returns:
+            Optional[Dict]: Parsed JSON dictionary or None if parsing fails completely.
+        """
+        if not response_text:
+            return None
+            
+        try:
+            # First try normal parsing
+            return json.loads(response_text)
+        except json.JSONDecodeError:
+            # Response might be truncated - try to fix it
+            logger.warning("JSON parsing failed, attempting to fix incomplete JSON")
+            
+            # Check if it's a truncated string issue
+            if re.search(r'"[^"]*$', response_text):
+                # Add closing quote for the last string
+                fixed_text = response_text + '"'
+                try:
+                    return json.loads(fixed_text)
+                except json.JSONDecodeError:
+                    pass
+                    
+            # Try adding missing closing brackets/braces
+            open_braces = response_text.count('{')
+            close_braces = response_text.count('}')
+            open_brackets = response_text.count('[')
+            close_brackets = response_text.count(']')
+            
+            fixed_text = response_text
+            
+            # Add missing closing brackets
+            if open_brackets > close_brackets:
+                fixed_text += ']' * (open_brackets - close_brackets)
+                
+            # Add missing closing braces
+            if open_braces > close_braces:
+                fixed_text += '}' * (open_braces - close_braces)
+                
+            try:
+                return json.loads(fixed_text)
+            except json.JSONDecodeError:
+                # If still failing, try to extract a valid JSON subset
+                try:
+                    # Find the first opening brace and try to extract a valid object
+                    start_idx = response_text.find('{')
+                    if start_idx >= 0:
+                        # Try progressively larger substrings until we find valid JSON
+                        for i in range(len(response_text), start_idx + 1, -1):
+                            try_text = response_text[start_idx:i]
+                            # Add missing closing braces if needed
+                            missing_braces = try_text.count('{') - try_text.count('}')
+                            if missing_braces > 0:
+                                try_text += '}' * missing_braces
+                            
+                            try:
+                                return json.loads(try_text)
+                            except json.JSONDecodeError:
+                                continue
+                except Exception:
+                    pass
+                
+                # If all attempts fail, create a minimal valid response
+                logger.error(f"Failed to fix JSON response: {response_text[:100]}...")
+                return {
+                    "topic": "Parsing Error",
+                    "keywords": [],
+                    "relationship": "UNKNOWN",
+                    "confidence": 0,
+                    "visual_topic": "Parsing Error",
+                    "visual_keywords": [],
+                    "visual_relationship": "UNKNOWN",
+                    "error": "Could not parse LLM response"
+                }
     """Extends TopicAnalyzer to incorporate visual context from video frames.
 
     This class enhances the text-based topic analysis with visual information,
@@ -282,9 +365,24 @@ class VisualTopicAnalyzer(TopicAnalyzer):
                     try:
                         # Clean up the response text to handle markdown code blocks
                         cleaned_response = self._clean_json_response(response_text)
-
-                        result = json.loads(cleaned_response)
-
+                        
+                        # Use the safe JSON parser
+                        result = self._safe_parse_json(cleaned_response)
+                        
+                        if result is None:
+                            logger.warning("LLM returned empty or unparseable response")
+                            return {
+                                "topic": "Empty Response",
+                                "keywords": [],
+                                "relationship": "UNKNOWN",
+                                "confidence": 0,
+                                "visual_topic": "Empty Response",
+                                "visual_keywords": [],
+                                "visual_relationship": "UNKNOWN",
+                                "visual_summary": "Empty response from LLM.",
+                                "error": "Empty response from LLM"
+                            }
+                        
                         # Validate expected keys for visual analysis
                         expected_keys = [
                             "topic", "keywords", "relationship", "confidence",
@@ -309,20 +407,6 @@ class VisualTopicAnalyzer(TopicAnalyzer):
 
                         return result
 
-                    except json.JSONDecodeError as json_e:
-                        logger.error(f"Failed to parse JSON response: {json_e}. Response: '{response_text}'")
-                        return {
-                            "topic": "Parsing Error",
-                            "keywords": [],
-                            "relationship": "UNKNOWN",
-                            "confidence": 0,
-                            "visual_topic": "Parsing Error",
-                            "visual_keywords": [],
-                            "visual_relationship": "UNKNOWN",
-                            "visual_summary": "Failed to parse response.",
-                            "error": f"JSONDecodeError: {json_e}",
-                            "raw_response": response_text
-                        }
                     except Exception as parse_e:
                         logger.error(f"Error processing LLM response: {parse_e}. Response: '{response_text}'")
                         return {
@@ -371,7 +455,6 @@ class VisualTopicAnalyzer(TopicAnalyzer):
         # Remove markdown code blocks
         if "```json" in response_text or "```" in response_text:
             # Extract content between code blocks if present
-            import re
             code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
             matches = re.findall(code_block_pattern, response_text)
 
