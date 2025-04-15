@@ -51,7 +51,22 @@ def analyze_frame(
     software_list: Optional[List[str]] = None,
     ocr_lang: str = "eng",
     previous_analysis_summary: Optional[str] = None,
+    visual_similarity_threshold: float = 0.85,
 ) -> Dict[str, Any]:
+    """Analyzes a single frame image file within the context of its scene.
+    
+    Args:
+        frame_path: Path to the frame image file
+        scene_context: Dictionary containing scene information
+        gemini_client: Initialized GeminiClient instance
+        software_list: Optional list of software names to detect
+        ocr_lang: Language for OCR detection
+        previous_analysis_summary: Optional summary from previous frame analysis
+        visual_similarity_threshold: Threshold for fuzzy matching in text detection (0.0-1.0)
+        
+    Returns:
+        Dictionary containing frame analysis results
+    """
     """Analyzes a single frame image file within the context of its scene."""
     logger.debug(f"Analyzing frame: {frame_path} for scene {scene_context.get('scene_id', 'N/A')}")
     results = {
@@ -74,7 +89,13 @@ def analyze_frame(
         ocr_matches = []
         if software_list:
             try:
-                ocr_matches = detect_software_names(frame_cv, software_list, ocr_lang)
+                # Pass the visual_similarity_threshold to the detection function
+                ocr_matches = detect_software_names(
+                    frame_cv, 
+                    software_list, 
+                    ocr_lang,
+                    similarity_threshold=visual_similarity_threshold
+                )
                 logger.debug(f"OCR Matches: {ocr_matches}")
                 if ocr_matches:
                     results["software_detections"] = ocr_matches
@@ -145,8 +166,27 @@ def analyze_scenes(
     frame_format: str = "jpg",
     compression_quality: int = 90,
     register: str = "it-workflow", # Keep register for potential future prompt adjustments
+    visual_similarity_threshold: float = 0.85  # Renamed for consistency with analyze_frame
 ) -> List[Dict]:
-    """Analyzes representative frames from detected video scenes."""
+    """
+    Analyzes representative frames from detected video scenes.
+    
+    Args:
+        input_video: Path to the input video file
+        scene_boundaries: List of scene boundaries (start_time, end_time)
+        project_path: Path to the project directory
+        gemini_client: Initialized GeminiClient instance
+        software_list: Optional list of software to detect
+        ocr_lang: Language for OCR
+        frames_per_scene: Number of frames to extract per scene
+        frame_format: Format for extracted frames
+        compression_quality: Quality for JPEG compression
+        register: Analysis register for Gemini context
+        visual_similarity_threshold: Threshold for visual similarity detection (0.0-1.0)
+    
+    Returns:
+        List of dictionaries containing scene analysis results
+    """
     # ... (Setup and frame extraction logic remains the same as previous refactor step) ...
     logger.info(f"Starting visual analysis for video: {input_video} based on {len(scene_boundaries)} scenes.")
 
@@ -224,6 +264,7 @@ def analyze_scenes(
                         software_list=software_list,
                         ocr_lang=ocr_lang,
                         previous_analysis_summary=previous_gemini_summary,
+                        visual_similarity_threshold=visual_similarity_threshold,  # Pass the visual similarity parameter
                     )
                     scene_frame_analyses.append(frame_analysis_result)
                     if "error" in frame_analysis_result: error_in_scene = True

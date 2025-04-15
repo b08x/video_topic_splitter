@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 from dotenv import load_dotenv
 
 # Updated imports
-from video_topic_splitter.constants import CHECKPOINTS
+from video_topic_splitter.constants import CHECKPOINTS, DEFAULT_SOFTWARE_LIST
 from video_topic_splitter.core import process_video
 from video_topic_splitter.project import create_project_folder, load_checkpoint
 from video_topic_splitter.utils.youtube import is_youtube_url
@@ -97,7 +97,7 @@ def main() -> None:
         help="Enable enhanced visual topic analysis that correlates transcript with visual elements"
     )
     parser.add_argument(
-        "--visual-similarity", type=float, default=0.6,
+        "--visual-similarity-threshold", type=float, default=0.6,
         help="Threshold for visual similarity detection (0.0-1.0, default: 0.6)"
     )
     parser.add_argument(
@@ -129,8 +129,8 @@ def main() -> None:
         logger.error(f"Failed to create project folder: {e}", exc_info=True)
         sys.exit(1)
 
-    # Load software list if provided
-    software_list = None
+    # Load software list if provided, otherwise use DEFAULT_SOFTWARE_LIST
+    software_list = DEFAULT_SOFTWARE_LIST  # Use default list as a starting point
     if args.software_list:
         if not os.path.exists(args.software_list):
             logger.error(f"Software list file not found: {args.software_list}")
@@ -142,6 +142,8 @@ def main() -> None:
         except Exception as e:
             logger.error(f"Failed to read software list file: {e}", exc_info=True)
             sys.exit(1)
+    else:
+        logger.info(f"Using default software list with {len(software_list)} entries for OCR detection.")
             
     # Check for GEMINI_API_KEY if visual topic analysis is enabled
     if args.visual_topic:
@@ -166,7 +168,7 @@ def main() -> None:
                     compression_quality=args.frame_quality,
                     register=args.register,
                     force_reanalysis=args.force_reanalysis,
-                    visual_similarity=args.visual_similarity
+                    visual_similarity_threshold=args.visual_similarity_threshold
                 )
                 
                 # If insights extraction is requested

@@ -1,2 +1,6 @@
 # processing/__init__.py
-"""Media processing package."""
+"""Processing package.
+
+This package contains modules for processing various types of data,
+including video, audio, and transcript processing.
+"""

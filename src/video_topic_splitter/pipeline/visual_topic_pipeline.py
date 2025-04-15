@@ -105,7 +105,8 @@ def run_visual_topic_pipeline(
     frame_format: str = "jpg",
     compression_quality: int = 90,
     register: str = "gen-ai",
-    force_reanalysis: bool = False
+    force_reanalysis: bool = False,
+    visual_similarity_threshold: float = 0.85  # Added visual_similarity_threshold parameter
 ) -> Dict:
     """Runs the complete visual topic analysis pipeline.
     
@@ -154,7 +155,9 @@ def run_visual_topic_pipeline(
     analysis_results_dir = os.path.join(project_path, "scene_analysis")
     os.makedirs(analysis_results_dir, exist_ok=True)
     
-    scene_analysis_checkpoint = load_checkpoint(project_path, CHECKPOINTS["SCENE_ANALYSIS_COMPLETE"])
+    # Load checkpoint
+    checkpoint = load_checkpoint(project_path)
+    scene_analysis_checkpoint = checkpoint and checkpoint.get("stage") == CHECKPOINTS["SCENE_ANALYSIS_COMPLETE"]
     
     if scene_analysis_checkpoint and not force_reanalysis:
         logger.info("Loading existing scene analysis results...")
@@ -171,7 +174,8 @@ def run_visual_topic_pipeline(
                 frames_per_scene=frames_per_scene,
                 frame_format=frame_format,
                 compression_quality=compression_quality,
-                register=register
+                register=register,
+                visual_similarity_threshold=visual_similarity_threshold  # Pass the visual_similarity_threshold parameter
             )
     else:
         logger.info("Running visual scene analysis...")
@@ -185,7 +189,8 @@ def run_visual_topic_pipeline(
             frames_per_scene=frames_per_scene,
             frame_format=frame_format,
             compression_quality=compression_quality,
-            register=register
+            register=register,
+            visual_similarity_threshold=visual_similarity_threshold  # Pass the visual_similarity_threshold parameter
         )
     
     # Step 2: Load transcript sentences
@@ -243,8 +248,8 @@ def run_visual_topic_pipeline(
     # Save final checkpoint
     save_checkpoint(
         project_path,
-        CHECKPOINTS["VISUAL_TOPIC_PIPELINE_COMPLETE"],
         {
+            "stage": CHECKPOINTS["VISUAL_TOPIC_PIPELINE_COMPLETE"],
             "combined_results_path": combined_results_path,
             "visual_topic_results_path": visual_topic_results_path,
             "scene_analysis_path": os.path.join(analysis_results_dir, "scene_analysis_results.json")
