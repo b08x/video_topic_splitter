@@ -6,57 +6,44 @@ import logging
 import os
 import shutil
 import csv
-from typing import Optional
+from typing import Optional, List, Dict, Any, Tuple
 
 from deepgram import DeepgramClient, PrerecordedOptions
 from dotenv import load_dotenv
-# Removed Groq import as it's not the primary focus now
-# from groq import Groq
 
-# Removed topic modeling import
-# from .analysis.topic_modeling import process_transcript
-from .analysis.visual_analysis import analyze_scenes, save_analyzed_scenes # Use analyze_scenes
-from .api.deepgram import transcribe_file_deepgram
-from .constants import CHECKPOINTS
-from .constants import NO_SCENES_DETECTED
-from .api.gemini import GeminiClient
+# Local application imports
+from .constants import CHECKPOINTS, NO_SCENES_DETECTED
+from .project import load_checkpoint, save_checkpoint
+from .utils.youtube import download_video, is_youtube_url
 from .processing.audio.audio import (convert_to_mono_and_resample,
                                      extract_audio, normalize_audio,
                                      remove_silence)
-# Import scene detection and splitting functions
 from .processing.video.scene_detection import (detect_scenes,
-                                               split_video_by_scenes)
-# Import frame extraction functions from the new module
-from .processing.video.frame_extraction import extract_scene_keyframes
-from .project import load_checkpoint, save_checkpoint
+                                               split_video_by_scenes) # Keep for splitting
+# For visual analysis and multimodal topic modeling
+from .analysis.visual_analysis import analyze_scenes
+from .analysis.visual_topic_modeling import prepare_visual_frames_for_topic_modeling, process_transcript_with_visuals
+from .api.gemini import GeminiClient
+from .api.deepgram import transcribe_file_deepgram
 from .transcription import load_transcript, save_transcript, save_transcription
-from .utils.youtube import download_video, is_youtube_url # Added is_youtube_url
+
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# Keep handle_audio_video largely the same, as audio processing is still needed
+# Note: handle_audio_video function remains largely the same as before
+# It processes audio and prepares it for transcription.
 def handle_audio_video(video_path, project_path, skip_unsilence=False):
     """
     Processes the audio track of a video file: normalization, optional silence
     removal, extraction, and resampling, with checkpointing.
-
-    Args:
-        video_path (str): Path to the input video file.
-        project_path (str): Path to the project directory.
-        skip_unsilence (bool, optional): If True, skips silence removal. Defaults to False.
-
-    Returns:
-        tuple[str, str]: Paths to the (potentially unsilenced) video and the
-                         final mono, resampled audio file.
-
-    Raises:
-        RuntimeError: If any audio processing step fails critically.
-        FileNotFoundError: If input video_path does not exist.
+    (Implementation details omitted for brevity - assume it's the same as previously shown)
     """
     audio_dir = os.path.join(project_path, "audio")
     os.makedirs(audio_dir, exist_ok=True)
     logger.info(f"Audio processing outputs will be saved in: {audio_dir}")
+
+    # Checkpoint: PROJECT_CREATED implicitly handled by project folder creation
 
     video_name, video_ext = os.path.splitext(os.path.basename(video_path))
     normalized_video_path = os.path.join(project_path, f"normalized_video{video_ext}")
@@ -67,6 +54,15 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
     # Check for existing final processed files first
     if os.path.exists(unsilenced_video_path) and os.path.exists(mono_resampled_audio_path):
         logger.info("Found existing processed audio/video files. Using cached versions.")
+        # Ensure checkpoint reflects this if loading from cache
+        save_checkpoint(
+            project_path,
+            CHECKPOINTS["AUDIO_PROCESSED"],
+            {
+                "processed_video_path": unsilenced_video_path,
+                "processed_audio_path": mono_resampled_audio_path,
+            },
+        )
         return unsilenced_video_path, mono_resampled_audio_path
 
     current_video_path = video_path # Start with original video
@@ -113,6 +109,7 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
                 logger.info("Silence removal complete.")
     else:
          logger.info("Using existing unsilenced video file.")
+
     # Update current video path to the one that will be used for extraction
     current_video_path_for_extraction = unsilenced_video_path
 
@@ -148,18 +145,21 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
             project_path,
             CHECKPOINTS["AUDIO_PROCESSED"],
             {
-                "processed_video_path": unsilenced_video_path, # Renamed key for clarity
-                "processed_audio_path": mono_resampled_audio_path, # Renamed key
+                "processed_video_path": unsilenced_video_path,
+                "processed_audio_path": mono_resampled_audio_path,
             },
         )
         logger.info("Audio processing checkpoint saved.")
     else:
-        logger.error("Final processed audio/video files not found. Checkpoint not saved.")
+        # This case should ideally not be reached if checks above passed, but added for safety
+        logger.error("Final processed audio/video files not found after processing steps. Checkpoint not saved.")
         raise RuntimeError("Audio processing finished but expected output files are missing.")
 
     return unsilenced_video_path, mono_resampled_audio_path
 
 
+# Note: handle_transcription_and_scene_detection remains largely the same
+# It handles transcription and scene detection concurrently/sequentially.
 def handle_transcription_and_scene_detection(
     audio_path: str,
     video_path: str, # Needed for scene detection
@@ -170,19 +170,8 @@ def handle_transcription_and_scene_detection(
 ) -> tuple[Optional[list], Optional[list]]:
     """
     Handles audio transcription and video scene detection.
-
-    Args:
-        audio_path (str): Path to the processed audio file for transcription.
-        video_path (str): Path to the video file for scene detection.
-        project_path (str): Path to the project directory.
-        api (str, optional): Transcription API ('deepgram'). Defaults to "deepgram".
-        scene_threshold (float, optional): Threshold for scene detection. Defaults to 27.0.
-        min_scene_len_sec (float, optional): Min scene length in seconds. Defaults to 1.0.
-
-    Returns:
-        tuple[Optional[list], Optional[list]]: A tuple containing:
-            - transcript (list | None): List of transcript utterances or None on failure.
-            - scene_boundaries (list | None): List of (start_sec, end_sec) tuples for scenes or None.
+    (Implementation details omitted for brevity - assume it's the same as previously shown)
+    Saves checkpoints: TRANSCRIPTION_COMPLETE, SCENES_DETECTED, NO_SCENES_DETECTED
     """
     # --- Transcription ---
     transcript_path = os.path.join(project_path, "transcript.json")
@@ -206,11 +195,9 @@ def handle_transcription_and_scene_detection(
         if api == "deepgram":
             try:
                 deepgram_client = DeepgramClient(deepgram_key)
-                # Use options suitable for getting timed utterances
                 deepgram_options = PrerecordedOptions(
                     model="nova-2", language="en", smart_format=True,
                     punctuate=True, utterances=True,
-                    # Add paragraphs=True, diarize=True if needed for context later
                 )
                 transcription = transcribe_file_deepgram(
                     deepgram_client, audio_path, deepgram_options
@@ -232,6 +219,7 @@ def handle_transcription_and_scene_detection(
                  logger.error(f"Deepgram transcription failed: {e}", exc_info=True)
                  transcript = None # Indicate failure
         else:
+            # Placeholder for other APIs if needed
             raise ValueError(f"Transcription API '{api}' is not currently supported.")
 
     # Checkpoint after transcription attempt
@@ -242,15 +230,13 @@ def handle_transcription_and_scene_detection(
         logger.info("Transcription checkpoint saved.")
     else:
         logger.error("Transcription failed or produced no utterances.")
-        # Decide whether to proceed without transcript or raise error
-        # For now, return None for transcript
+        # Return None for transcript, main function should handle this
 
     # --- Scene Detection ---
     scene_boundaries = None
     scenes_csv_path = os.path.join(project_path, "scenes", "scenes.csv") # Standard path for CSV
     if os.path.exists(scenes_csv_path):
         logger.info("Loading existing scene boundaries from CSV...")
-        # Basic loading logic, assumes CSV format from detect_scenes
         try:
              scene_boundaries = []
              with open(scenes_csv_path, 'r', encoding='utf-8') as f:
@@ -258,7 +244,6 @@ def handle_transcription_and_scene_detection(
                  header = next(reader) # Skip header
                  for row in reader:
                      try:
-                         # Assuming start_sec is col 3 (index 3) and end_sec is col 4 (index 4)
                          start_sec = float(row[3])
                          end_sec = float(row[4])
                          scene_boundaries.append((start_sec, end_sec))
@@ -272,6 +257,7 @@ def handle_transcription_and_scene_detection(
     if scene_boundaries is None:
         logger.info("Detecting scenes in video...")
         scenes_output_dir = os.path.join(project_path, "scenes") # Dir for CSV and maybe frames later
+        os.makedirs(scenes_output_dir, exist_ok=True) # Ensure dir exists
         try:
             scene_boundaries = detect_scenes(
                 video_path=video_path,
@@ -280,56 +266,47 @@ def handle_transcription_and_scene_detection(
                 min_scene_len_sec=min_scene_len_sec,
                 save_csv=True # Ensure CSV is saved
             )
-            
+
             if scene_boundaries and len(scene_boundaries) > 0:
                 logger.info(f"Scene detection complete. Found {len(scene_boundaries)} scenes.")
+                save_checkpoint(
+                    project_path, CHECKPOINTS["SCENES_DETECTED"], {"scene_boundaries": scene_boundaries}
+                )
+                logger.info("Scene detection checkpoint saved.")
             else:
                 logger.warning("No scenes were detected in the video.")
-                # Save a special checkpoint for no scenes detected
                 save_checkpoint(project_path, NO_SCENES_DETECTED, {"message": "No scenes detected in video"})
-                # Initialize empty list to prevent None errors
-                scene_boundaries = []
+                scene_boundaries = [] # Use empty list for consistency
         except Exception as e:
             logger.error(f"Scene detection failed: {e}", exc_info=True)
             scene_boundaries = None # Indicate failure
 
-    # Checkpoint after scene detection attempt
-    if scene_boundaries is not None:
-        save_checkpoint(
-            project_path, CHECKPOINTS["SCENES_DETECTED"], {"scene_boundaries": scene_boundaries}
-        )
-        logger.info("Scene detection checkpoint saved.")
-    else:
-        logger.error("Scene detection failed.")
-        # Decide whether to proceed or raise error
-        # For now, return None for scenes
-
+    # Return results
     return transcript, scene_boundaries
 
 
+# --- Main Processing Function (Refactored) ---
 def process_video(
     input_path: str, # Can be local path or YouTube URL
     project_path: str,
     api: str = "deepgram",
     skip_unsilence: bool = False,
-    # Removed transcribe_only flag for simplification
-    # Removed topic modeling params (num_topics)
-    # --- Scene Detection Params ---
+    # Scene Detection Params
     scene_threshold: float = 27.0,
     min_scene_len: float = 1.0,
-    # --- Visual Analysis Params ---
+    # Visual Analysis Params passed down from CLI
     software_list: Optional[list] = None,
     ocr_lang: str = "eng",
     frames_per_scene: int = 1,
     frame_format: str = "jpg",
     compression_quality: int = 90,
-    register: str = "it-workflow", # Keep register for Gemini context
-    # Removed logo params
-    # Removed thumbnail params (handled within scene analysis if needed)
-):
+    register: str = "it-workflow", # Default register
+    visual_similarity_threshold: float = 0.6, # Default for VisualTopicAnalyzer
+) -> Dict:
     """
-    Main pipeline function to process a video: download (optional), process audio,
-    transcribe, detect scenes, analyze scenes visually, and split video by scenes.
+    Main unified pipeline function to process a video: download (optional),
+    process audio, transcribe, detect scenes, perform visual analysis,
+    run visual topic modeling, and split video based on multimodal segments.
 
     Args:
         input_path (str): Path to the local video file or YouTube URL.
@@ -343,21 +320,22 @@ def process_video(
         frames_per_scene (int, optional): Frames to extract/analyze per scene. Defaults to 1.
         frame_format (str, optional): Format for extracted frames. Defaults to "jpg".
         compression_quality (int, optional): JPEG quality. Defaults to 90.
-        register (str, optional): Analysis register for Gemini. Defaults to "it-workflow".
+        register (str, optional): Analysis register for context. Defaults to "it-workflow".
+        visual_similarity_threshold (float, optional): Threshold for visual similarity detection. Defaults to 0.6.
 
     Returns:
-        dict: Final results including transcript, scene analysis, and split video paths.
+        dict: Final results including transcript, visual topic analysis, and split video paths.
 
     Raises:
         RuntimeError, ValueError, FileNotFoundError, Exception: Propagated from sub-functions.
     """
     os.makedirs(project_path, exist_ok=True)
-    logger.info(f"Starting processing for input: {input_path}")
+    logger.info(f"Starting unified processing pipeline for input: {input_path}")
     logger.info(f"Project directory: {project_path}")
 
     checkpoint = load_checkpoint(project_path)
     current_stage = checkpoint["stage"] if checkpoint else -1
-    logger.info(f"Current checkpoint stage: {current_stage}")
+    logger.info(f"Current checkpoint stage: {current_stage} (Using updated sequence)")
 
     is_youtube = is_youtube_url(input_path)
     video_path = input_path # May be updated after download
@@ -366,7 +344,7 @@ def process_video(
     youtube_complete_stage = CHECKPOINTS["YOUTUBE_DOWNLOAD_COMPLETE"]
     if is_youtube and current_stage < youtube_complete_stage:
         logger.info("Downloading YouTube video...")
-        download_path = os.path.join(project_path, "source_video.mp4")
+        download_path = os.path.join(project_path, "source_video.mp4") # Standard name
         result = download_video(input_path, download_path, project_path)
         if result["status"] == "error":
             raise RuntimeError(f"YouTube download failed: {result['message']}")
@@ -375,11 +353,17 @@ def process_video(
         logger.info(f"YouTube video downloaded to: {video_path}")
         current_stage = youtube_complete_stage
     elif is_youtube:
-        video_path = checkpoint["data"]["video_path"]
-        logger.info(f"Using previously downloaded YouTube video: {video_path}")
+        # Ensure video_path is loaded from checkpoint if download was done previously
+        if checkpoint and "video_path" in checkpoint["data"]:
+             video_path = checkpoint["data"]["video_path"]
+             logger.info(f"Using previously downloaded YouTube video: {video_path}")
+        else:
+             # Handle missing checkpoint data case
+             raise RuntimeError("YouTube download checkpoint missing video path. Please clear checkpoint or re-run.")
     elif not os.path.exists(video_path):
          # If it's not YouTube and doesn't exist locally
          raise FileNotFoundError(f"Input video file not found: {video_path}")
+    logger.info(f"Using video source: {video_path}")
 
 
     # --- Stage 2: Audio Processing ---
@@ -394,11 +378,16 @@ def process_video(
         # Checkpoint is saved within handle_audio_video on success
         current_stage = audio_processed_stage
     else:
-        processed_video_path = checkpoint["data"]["processed_video_path"]
-        processed_audio_path = checkpoint["data"]["processed_audio_path"]
-        logger.info("Audio processing already completed. Using cached paths.")
+        # Load paths from checkpoint data
+        if checkpoint and "processed_video_path" in checkpoint["data"] and "processed_audio_path" in checkpoint["data"]:
+             processed_video_path = checkpoint["data"]["processed_video_path"]
+             processed_audio_path = checkpoint["data"]["processed_audio_path"]
+             logger.info("Audio processing already completed. Using cached paths.")
+        else:
+             # Handle missing checkpoint data
+             raise RuntimeError("Audio processing checkpoint missing necessary paths. Please clear checkpoint or re-run.")
 
-    # Ensure paths are valid after audio processing step
+    # Ensure paths are valid after loading or processing
     if not processed_video_path or not os.path.exists(processed_video_path):
          raise FileNotFoundError(f"Processed video path not found or invalid after audio stage: {processed_video_path}")
     if not processed_audio_path or not os.path.exists(processed_audio_path):
@@ -407,36 +396,43 @@ def process_video(
 
     # --- Stage 3 & 4: Transcription & Scene Detection ---
     transcription_complete_stage = CHECKPOINTS["TRANSCRIPTION_COMPLETE"]
-    scenes_detected_stage = CHECKPOINTS["SCENES_DETECTED"]
+    scenes_detected_stage = CHECKPOINTS["SCENES_DETECTED"] # Includes NO_SCENES_DETECTED state
     transcript = None
     scene_boundaries = None
 
-    # Try to load from SCENES_DETECTED checkpoint first
-    if current_stage >= scenes_detected_stage:
-         logger.info("Loading transcript and scene boundaries from checkpoint...")
-         # Need to ensure transcript path was also saved or load it separately
-         transcript_path = os.path.join(project_path, "transcript.json")
-         if os.path.exists(transcript_path):
+    # We need both transcript and scenes to proceed to visual analysis stages
+    # Check if both stages are complete based on the latest checkpoint
+    if current_stage >= scenes_detected_stage or current_stage == NO_SCENES_DETECTED:
+        logger.info("Attempting to load transcript and scene boundaries from previous stages...")
+        # Load transcript
+        transcript_path = os.path.join(project_path, "transcript.json")
+        if os.path.exists(transcript_path):
              try:
                  transcript = load_transcript(transcript_path)
              except Exception as e:
-                 logger.warning(f"Failed to load transcript from file ({transcript_path}) even though checkpoint exists: {e}")
-                 # Force re-transcription/detection below
-                 current_stage = audio_processed_stage # Reset stage
-         else:
-              logger.warning("Scenes detected checkpoint exists, but transcript file is missing. Re-running.")
-              current_stage = audio_processed_stage # Reset stage
+                 logger.warning(f"Failed to load transcript from file ({transcript_path}): {e}. Will attempt re-run.")
+                 current_stage = audio_processed_stage # Force re-run
+        else:
+            logger.warning("Transcription checkpoint likely passed, but transcript file missing. Re-running.")
+            current_stage = audio_processed_stage # Force re-run
 
-         if current_stage >= scenes_detected_stage: # Re-check stage
-             scene_boundaries = checkpoint["data"].get("scene_boundaries")
-             if transcript is None or scene_boundaries is None:
-                  logger.warning("Checkpoint data incomplete for transcript/scenes. Re-running detection.")
-                  current_stage = audio_processed_stage # Reset stage
-             else:
-                  logger.info("Transcript and scene boundaries loaded from checkpoint/files.")
+        # Load scene boundaries (handle NO_SCENES state)
+        if current_stage >= scenes_detected_stage: # Check again after potential reset
+            scene_boundaries = checkpoint["data"].get("scene_boundaries")
+        elif current_stage == NO_SCENES_DETECTED:
+             scene_boundaries = [] # Empty list signifies no scenes
+        else:
+             # This case shouldn't be reached if current_stage was reset correctly
+             logger.warning("Scene detection state inconsistent. Re-running detection.")
+             current_stage = audio_processed_stage
 
-    # If not loaded from checkpoint, run transcription and scene detection
-    if current_stage < scenes_detected_stage:
+        # Final check if loaded data is valid
+        if transcript is None or scene_boundaries is None:
+             logger.warning("Failed to load necessary transcript/scene data. Re-running detection/transcription.")
+             current_stage = audio_processed_stage # Ensure re-run
+
+    # Run transcription and scene detection if not loaded successfully
+    if current_stage < scenes_detected_stage and current_stage != NO_SCENES_DETECTED:
         logger.info("Starting transcription and scene detection...")
         transcript, scene_boundaries = handle_transcription_and_scene_detection(
             audio_path=processed_audio_path,
@@ -448,141 +444,205 @@ def process_video(
         )
         # Checkpoints are saved within handle_transcription_and_scene_detection
         if transcript is not None and scene_boundaries is not None:
-             current_stage = scenes_detected_stage # Update stage only if both succeed
+             # Update stage based on whether scenes were found
+             last_checkpoint = load_checkpoint(project_path) # Reload to get latest stage
+             current_stage = last_checkpoint["stage"] if last_checkpoint else current_stage
         else:
              logger.error("Failed to get transcript or detect scenes. Cannot proceed.")
-             # Return partial results or raise error
              return {
                  "error": "Transcription or Scene Detection failed.",
-                 "transcript": transcript,
+                 "transcript": transcript, # Return partial results
                  "scene_boundaries": scene_boundaries
              }
 
     # --- Stage 5: Scene Visual Analysis ---
-    scene_analysis_complete_stage = CHECKPOINTS["SCENE_ANALYSIS_COMPLETE"]
-    analyzed_scenes = None
-    if current_stage < scene_analysis_complete_stage:
+    visual_analysis_complete_stage = CHECKPOINTS["VISUAL_ANALYSIS_COMPLETE"]
+    analyzed_scenes_results = None
+    scene_analysis_results_path = os.path.join(project_path, "scene_analysis", "scene_analysis_results.json") # Define path
+
+    if current_stage < visual_analysis_complete_stage:
         logger.info("Starting scene visual analysis...")
-        
-        # Check if we have the no scenes detected checkpoint
-        no_scenes_detected = (current_stage == NO_SCENES_DETECTED) or (
-            checkpoint and checkpoint.get("stage") == NO_SCENES_DETECTED
-        )
-        
-        if not scene_boundaries and not no_scenes_detected:
-            raise RuntimeError("Cannot perform scene analysis without scene boundaries.")
-        
-        if no_scenes_detected or (scene_boundaries and len(scene_boundaries) == 0):
-            logger.info("Skipping scene analysis as no scenes were detected.")
-            analyzed_scenes = []  # Empty list instead of None
+        if not scene_boundaries:
+            logger.info("Skipping visual analysis as no scenes were detected.")
+            analyzed_scenes_results = [] # Need empty list for consistency
+            # Save checkpoint indicating skipped analysis? Or rely on next stage check?
             save_checkpoint(
-                project_path, scene_analysis_complete_stage, {"analyzed_scenes": analyzed_scenes}
+                 project_path, visual_analysis_complete_stage, {"analyzed_scenes_results_path": None, "skipped": True}
             )
-            current_stage = scene_analysis_complete_stage
-            # Skip the rest of this stage
+            current_stage = visual_analysis_complete_stage
         else:
-
-            # Instantiate the Gemini Client here
             try:
-                gemini_client = GeminiClient() # Assumes API key is in env var
-            except ValueError as e:
-                logger.error(f"Failed to initialize Gemini Client: {e}")
-                raise RuntimeError("Gemini Client initialization failed.") from e
-            except Exception as e: # Catch other potential init errors
-                logger.error(f"Unexpected error initializing Gemini Client: {e}", exc_info=True)
-                raise RuntimeError("Unexpected error initializing Gemini Client.") from e
+                # Initialize Gemini Client (ensure API key is available via env var)
+                gemini_client = GeminiClient() # Assumes API key is in env
+                analyzed_scenes_results = analyze_scenes(
+                    input_video=processed_video_path, # Use the processed video
+                    scene_boundaries=scene_boundaries,
+                    project_path=project_path,
+                    gemini_client=gemini_client,
+                    software_list=software_list,
+                    ocr_lang=ocr_lang,
+                    frames_per_scene=frames_per_scene,
+                    frame_format=frame_format,
+                    compression_quality=compression_quality,
+                    register=register, # Pass register
+                    visual_similarity_threshold=visual_similarity_threshold # Pass threshold
+                )
+                # analyze_scenes saves its own results and checkpoint internally now
+                # Reload checkpoint to confirm stage update
+                last_checkpoint = load_checkpoint(project_path)
+                current_stage = last_checkpoint["stage"] if last_checkpoint and last_checkpoint["stage"] == visual_analysis_complete_stage else current_stage
+
+            except Exception as e:
+                 logger.error(f"Scene visual analysis failed: {e}", exc_info=True)
+                 return {"error": f"Visual analysis failed: {e}"}
+    else:
+        logger.info("Visual analysis already completed.")
+        # Load results from file if stage was already complete
+        if os.path.exists(scene_analysis_results_path):
+             try:
+                 from .analysis.visual_analysis import load_analyzed_scenes # Local import ok?
+                 analyzed_scenes_results = load_analyzed_scenes(os.path.join(project_path, "scene_analysis"))
+                 if analyzed_scenes_results is None: # Handle empty list case
+                      analyzed_scenes_results = []
+             except Exception as e:
+                  logger.warning(f"Failed to load existing visual analysis results: {e}")
+                  # Consider re-running by resetting stage? For now, proceed cautiously.
+                  analyzed_scenes_results = []
+        else:
+             # If checkpoint says complete but file missing, log warning
+             logger.warning(f"Visual analysis checkpoint complete, but results file missing: {scene_analysis_results_path}")
+             # If no scenes were detected previously, ensure results list is empty
+             if load_checkpoint(project_path).get("stage") == NO_SCENES_DETECTED:
+                  analyzed_scenes_results = []
+             else:
+                 # This indicates a problem, maybe reset stage and force re-run?
+                 logger.error("Inconsistent state: Visual analysis checkpoint passed but results missing.")
+                 return {"error": "Inconsistent state: Missing visual analysis results."}
 
 
-            analyzed_scenes = analyze_scenes(
-                input_video=processed_video_path,
-                scene_boundaries=scene_boundaries,
+    # --- Stage 6: Visual Topic Modeling ---
+    visual_topic_modeling_complete_stage = CHECKPOINTS["VISUAL_TOPIC_MODELING_COMPLETE"]
+    visual_topic_results = None
+    visual_topic_results_path = os.path.join(project_path, "visual_topic_analysis_results.json") # Define path
+
+    if current_stage < visual_topic_modeling_complete_stage:
+        logger.info("Starting visual topic modeling...")
+        if not transcript:
+             logger.error("Transcript not available, cannot perform visual topic modeling.")
+             return {"error": "Transcript missing for visual topic modeling."}
+        if analyzed_scenes_results is None:
+             logger.error("Analyzed scenes results not available. Cannot perform visual topic modeling.")
+             return {"error": "Missing analyzed scenes results."}
+
+        try:
+            # Prepare visual frames input
+            visual_frames = prepare_visual_frames_for_topic_modeling(analyzed_scenes_results)
+
+            # Run the combined analysis
+            visual_topic_results = process_transcript_with_visuals(
+                transcript_sentences=transcript, # Use the loaded transcript
+                visual_frames=visual_frames,
                 project_path=project_path,
-                gemini_client=gemini_client, # Pass the instance
-                software_list=software_list,
-                ocr_lang=ocr_lang,
-                frames_per_scene=frames_per_scene,
-                frame_format=frame_format,
-                compression_quality=compression_quality,
-                register=register,
+                register=register
             )
-            # Checkpoint is saved within analyze_scenes on success
-            current_stage = scene_analysis_complete_stage
+            # process_transcript_with_visuals saves its own results and checkpoint
+            last_checkpoint = load_checkpoint(project_path) # Reload checkpoint
+            current_stage = last_checkpoint["stage"] if last_checkpoint and last_checkpoint["stage"] == visual_topic_modeling_complete_stage else current_stage
+
+        except Exception as e:
+             logger.error(f"Visual topic modeling failed: {e}", exc_info=True)
+             return {"error": f"Visual topic modeling failed: {e}"}
+    else:
+        logger.info("Visual topic modeling already completed.")
+        # Load existing results
+        if os.path.exists(visual_topic_results_path):
+             try:
+                 with open(visual_topic_results_path, 'r', encoding='utf-8') as f:
+                      visual_topic_results = json.load(f)
+             except Exception as e:
+                  logger.warning(f"Failed to load existing visual topic results: {e}")
+                  visual_topic_results = None # Ensure it's None if loading fails
+        else:
+             logger.warning(f"Visual topic modeling checkpoint complete, but results file missing: {visual_topic_results_path}")
+             visual_topic_results = None
 
 
-    # --- Stage 6: Video Splitting ---
+    # --- Stage 7: Video Splitting ---
     video_split_complete_stage = CHECKPOINTS["VIDEO_SPLIT_COMPLETE"]
     split_video_paths = None
-    if current_stage < video_split_complete_stage:
-        logger.info("Splitting video by detected scenes...")
-        
-        # Check if we have the no scenes detected checkpoint
-        no_scenes_detected = (current_stage == NO_SCENES_DETECTED) or (
-            checkpoint and checkpoint.get("stage") == NO_SCENES_DETECTED
-        )
-        
-        if not scene_boundaries and not no_scenes_detected:
-             raise RuntimeError("Cannot split video without scene boundaries.")
-        
-        if no_scenes_detected or (scene_boundaries and len(scene_boundaries) == 0):
-            logger.info("Skipping video splitting as no scenes were detected.")
-            split_video_paths = []  # Empty list instead of None
-            save_checkpoint(
-                project_path, video_split_complete_stage, {"split_video_paths": split_video_paths}
-            )
-            current_stage = video_split_complete_stage
-            # Skip the rest of this stage
-        else:
 
-            split_output_dir = os.path.join(project_path, "split_videos")
-            os.makedirs(split_output_dir, exist_ok=True)
-            try:
-                split_video_paths = split_video_by_scenes(
-                    video_path=processed_video_path, # Split the same video used for analysis
-                    scene_list=scene_boundaries,
-                    output_dir=split_output_dir,
-                    # output_file_template defaults to 'scene_$SCENE_NUMBER.mp4'
-                )
-                save_checkpoint(
-                    project_path, video_split_complete_stage, {"split_video_paths": split_video_paths}
-                )
-                logger.info(f"Video successfully split into {len(split_video_paths)} segments.")
-                current_stage = video_split_complete_stage
-            except Exception as e:
-                 logger.error(f"Failed to split video: {e}", exc_info=True)
-                 # Don't raise error, just report failure and proceed without split paths
-                 split_video_paths = [] # Indicate failure
+    if current_stage < video_split_complete_stage:
+         logger.info("Splitting video based on identified topic segments...")
+         if visual_topic_results is None:
+             logger.warning("Visual topic modeling results not available. Cannot split video.")
+             # Save checkpoint indicating skipped split?
+         else:
+              final_segments = visual_topic_results.get("segments", [])
+              if not final_segments:
+                   logger.warning("No final segments identified by visual topic modeling. Cannot split video.")
+              else:
+                   # Extract start/end times for split_video_by_scenes
+                   segment_boundaries = [(seg.get("start_time", 0.0), seg.get("end_time", 0.0)) for seg in final_segments]
+                   split_output_dir = os.path.join(project_path, "split_videos")
+                   os.makedirs(split_output_dir, exist_ok=True)
+                   try:
+                        split_video_paths = split_video_by_scenes(
+                             video_path=processed_video_path, # Use processed video
+                             scene_list=segment_boundaries, # Use boundaries from topic analysis
+                             output_dir=split_output_dir,
+                        )
+                        save_checkpoint(
+                             project_path, video_split_complete_stage, {"split_video_paths": split_video_paths}
+                        )
+                        current_stage = video_split_complete_stage
+                        logger.info(f"Video successfully split into {len(split_video_paths)} topic-based segments.")
+                   except Exception as e:
+                        logger.error(f"Failed to split video based on topic segments: {e}", exc_info=True)
+                        split_video_paths = [] # Indicate failure
     else:
         logger.info("Video splitting already completed.")
-        split_video_paths = checkpoint["data"].get("split_video_paths")
-        if split_video_paths is None:
-             logger.warning("Video split checkpoint exists, but path list is missing. Cannot confirm split files.")
+        # Load split_video_paths from checkpoint data if needed
+        if checkpoint and "split_video_paths" in checkpoint["data"]:
+            split_video_paths = checkpoint["data"]["split_video_paths"]
 
 
-    # --- Final Results ---
+    # --- Stage 8: Final Results ---
+    process_complete_stage = CHECKPOINTS["PROCESS_COMPLETE"]
+    logger.info("Preparing final results...")
+
+    # Ensure key results are loaded or available
+    if visual_topic_results is None and os.path.exists(visual_topic_results_path):
+        logger.info("Reloading visual topic results for final summary...")
+        try:
+             with open(visual_topic_results_path, 'r', encoding='utf-8') as f:
+                  visual_topic_results = json.load(f)
+        except Exception:
+             logger.error("Failed to reload visual topic results for final summary.")
+
     final_results = {
         "project_path": project_path,
         "original_input": input_path,
         "processed_video_path": processed_video_path,
         "processed_audio_path": processed_audio_path,
-        "transcript": transcript, # Include the simplified transcript
-        "scene_boundaries": scene_boundaries,
-        "scene_analysis": analyzed_scenes,
-        "split_video_paths": split_video_paths,
+        # Include the main results from the visual topic modeling stage
+        "visual_topic_analysis": visual_topic_results if visual_topic_results else {"error": "Results unavailable"},
+        "split_video_paths": split_video_paths if split_video_paths is not None else [],
+        # Add references to other intermediate files if useful
+        "transcript_path": transcript_path if transcript else None,
+        "scene_analysis_path": scene_analysis_results_path if analyzed_scenes_results is not None else None,
     }
-
     # Save final results JSON
     final_results_path = os.path.join(project_path, "final_results.json")
     logger.info(f"Saving final results to: {final_results_path}")
     try:
         with open(final_results_path, "w", encoding="utf-8") as f:
-            # Use default=str to handle potential non-serializable types like Timecode
+            # Use default=str for safety with potential non-serializable types
             json.dump(final_results, f, indent=2, ensure_ascii=False, default=str)
     except Exception as e:
         logger.error(f"Failed to save final results JSON: {e}")
 
     # Final overall completion checkpoint
-    save_checkpoint(project_path, CHECKPOINTS["PROCESS_COMPLETE"], {"final_results_path": final_results_path})
-    logger.info("Processing complete. Final checkpoint saved.")
+    save_checkpoint(project_path, process_complete_stage, {"final_results_path": final_results_path})
+    logger.info("Unified processing pipeline complete.")
 
     return final_results
-
