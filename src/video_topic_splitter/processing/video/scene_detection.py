@@ -400,7 +400,7 @@ def split_video_by_scenes(
     output_dir: str,
     output_file_template: str = 'scene_$SCENE_NUMBER.mp4',
     show_progress: bool = False,
-    suppress_output: bool = True, # Keep ffmpeg logs quieter by default
+    show_output: bool = True, # Keep ffmpeg logs chatty by default
 ) -> List[str]:
     """Splits a video into multiple segment files based on detected scene boundaries.
 
@@ -429,9 +429,7 @@ def split_video_by_scenes(
         show_progress: If True, displays FFmpeg's progress indicators in the
             standard output/error streams during the splitting process.
             Defaults to False.
-        suppress_output: If True, suppresses most non-progress related output
-            from the underlying FFmpeg command. Set to False for debugging
-            FFmpeg issues. Defaults to True.
+        show_output: If True, will show output from ffmpeg for first split.
 
     Returns:
         A list of strings, where each string is the absolute path to a created
@@ -445,7 +443,7 @@ def split_video_by_scenes(
         ValueError: If the video file has an invalid or zero framerate.
         RuntimeError: If the video splitting process fails. This is often due to
             an underlying FFmpeg error (e.g., invalid arguments, codec issues,
-            file permissions). Check FFmpeg logs if `suppress_output` is False.
+            file permissions). Check FFmpeg logs if `show_output` is True.
             The original exception is chained.
 
     Notes:
@@ -470,7 +468,14 @@ def split_video_by_scenes(
             # Need to open video briefly to get duration for comparison
             temp_video = open_video(video_path)
             video_duration = temp_video.duration.get_seconds()
-            temp_video.release() # Close immediately after getting duration
+            
+            # Safely close the video handle - check if release method exists
+            if hasattr(temp_video, 'release'):
+                try:
+                    temp_video.release()
+                except Exception as e_release:
+                    logger.warning(f"Error releasing temporary video handle: {e_release}")
+            # No need for an else clause - if release() doesn't exist, we just continue
 
             # Define a small tolerance for start/end times
             time_tolerance = 0.5 # seconds
@@ -514,7 +519,7 @@ def split_video_by_scenes(
             scene_list=scene_list_timecodes,
             output_file_template=full_output_template, # Use the path constructed above
             show_progress=show_progress,
-            suppress_output=suppress_output,
+            show_output=show_output,
             # Example: Add copy codec args explicitly if needed, though it's default
             # ffmpeg_args=['-map', '0', '-c', 'copy']
         )
@@ -538,12 +543,12 @@ def split_video_by_scenes(
                 created_files_abs.append(abs_path)
                 actual_count += 1
             else:
-                # Log missing/empty files even if suppress_output was True for ffmpeg
+                # Log missing/empty files even if show_output was False for ffmpeg
                 logger.warning(f"Expected split file not found or is empty: {abs_path}")
 
 
         if actual_count != expected_count:
-             logger.warning(f"Video splitting possibly incomplete: Expected {expected_count} segment files, but found {actual_count} valid files in {output_dir}. Check FFmpeg logs (rerun with suppress_output=False if needed).")
+             logger.warning(f"Video splitting possibly incomplete: Expected {expected_count} segment files, but found {actual_count} valid files in {output_dir}. Check FFmpeg logs (rerun with show_output=True if needed).")
              # Depending on requirements, could raise an error here:
              # raise RuntimeError(f"Failed to create all expected video segments. Found {actual_count}/{expected_count}.")
 
@@ -560,10 +565,12 @@ def split_video_by_scenes(
         logger.error("Error during video splitting for %s: %s", video_path, str(e), exc_info=True)
         raise RuntimeError(f"Video splitting failed for {video_path}: {str(e)}") from e
     finally:
-        # Ensure video file handle is released
+        # Ensure video file handle is released if it has a release method
         if video and hasattr(video, 'release'):
             try:
                 video.release()
             except Exception as e_release:
-                 logger.warning(f"Error releasing video handle during splitting for {video_path}: {e_release}")
+                logger.warning(f"Error releasing video handle for {video_path}: {e_release}")
+        else:
+            logger.info("Video splitting complete.")
 
