@@ -12,7 +12,7 @@ from PIL import Image, UnidentifiedImageError
 from ..api.gemini import GeminiClient
 from ..constants import CHECKPOINTS
 from ..processing.ocr.ocr_detection import detect_software_names
-from ..processing.video.scene_detection import extract_scene_frames
+from ..processing.video.scene_detection import extract_scene_frames, detect_scenes
 from ..project import save_checkpoint, load_checkpoint
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,22 @@ def analyze_frame(
     software_list: Optional[List[str]] = None,
     ocr_lang: str = "eng",
     previous_analysis_summary: Optional[str] = None,
+    visual_similarity_threshold: float = 0.85,
 ) -> Dict[str, Any]:
+    """Analyzes a single frame image file within the context of its scene.
+    
+    Args:
+        frame_path: Path to the frame image file
+        scene_context: Dictionary containing scene information
+        gemini_client: Initialized GeminiClient instance
+        software_list: Optional list of software names to detect
+        ocr_lang: Language for OCR detection
+        previous_analysis_summary: Optional summary from previous frame analysis
+        visual_similarity_threshold: Threshold for fuzzy matching in text detection (0.0-1.0)
+        
+    Returns:
+        Dictionary containing frame analysis results
+    """
     """Analyzes a single frame image file within the context of its scene."""
     logger.debug(f"Analyzing frame: {frame_path} for scene {scene_context.get('scene_id', 'N/A')}")
     results = {
@@ -74,7 +89,12 @@ def analyze_frame(
         ocr_matches = []
         if software_list:
             try:
-                ocr_matches = detect_software_names(frame_cv, software_list, ocr_lang)
+                # Call without the unsupported similarity_threshold parameter
+                ocr_matches = detect_software_names(
+                    frame_cv, 
+                    software_list, 
+                    ocr_lang
+                )
                 logger.debug(f"OCR Matches: {ocr_matches}")
                 if ocr_matches:
                     results["software_detections"] = ocr_matches
@@ -136,7 +156,7 @@ def analyze_frame(
 
 def analyze_scenes(
     input_video: str,
-    scene_boundaries: List[Tuple[float, float]],
+    scene_boundaries: Optional[List[Tuple[float, float]]],
     project_path: str,
     gemini_client: GeminiClient, # Pass the client instance here
     software_list: Optional[List[str]] = None,
@@ -145,15 +165,59 @@ def analyze_scenes(
     frame_format: str = "jpg",
     compression_quality: int = 90,
     register: str = "it-workflow", # Keep register for potential future prompt adjustments
+    visual_similarity_threshold: float = 0.85  # Renamed for consistency with analyze_frame
 ) -> List[Dict]:
-    """Analyzes representative frames from detected video scenes."""
-    # ... (Setup and frame extraction logic remains the same as previous refactor step) ...
-    logger.info(f"Starting visual analysis for video: {input_video} based on {len(scene_boundaries)} scenes.")
+    """
+    Analyzes representative frames from detected video scenes.
+    
+    Args:
+        input_video: Path to the input video file
+        scene_boundaries: List of scene boundaries (start_time, end_time) or None to auto-detect
+        project_path: Path to the project directory
+        gemini_client: Initialized GeminiClient instance
+        software_list: Optional list of software to detect
+        ocr_lang: Language for OCR
+        frames_per_scene: Number of frames to extract per scene
+        frame_format: Format for extracted frames
+        compression_quality: Quality for JPEG compression
+        register: Analysis register for Gemini context
+        visual_similarity_threshold: Threshold for visual similarity detection (0.0-1.0)
+    
+    Returns:
+        List of dictionaries containing scene analysis results
+    """
+    logger.info(f"Starting visual analysis for video: {input_video}")
 
     if not os.path.exists(input_video):
         raise FileNotFoundError(f"Input video file not found: {input_video}")
-    if not scene_boundaries:
-         raise ValueError("Scene boundaries must be provided for analysis.")
+    
+    # Handle None scene_boundaries by auto-detecting scenes
+    if scene_boundaries is None:
+        logger.info("No scene boundaries provided. Auto-detecting scenes...")
+        scene_detection_dir = os.path.join(project_path, "scene_detection")
+        os.makedirs(scene_detection_dir, exist_ok=True)
+        try:
+            # Use default parameters for scene detection
+            scene_boundaries = detect_scenes(
+                video_path=input_video,
+                output_dir=scene_detection_dir  # Provide the required output_dir parameter
+            )
+            if not scene_boundaries:
+                logger.warning("Auto-detection found no scenes. Creating a single scene for the entire video.")
+                # Create a single scene for the entire video
+                video = cv2.VideoCapture(input_video)
+                if not video.isOpened():
+                    raise ValueError(f"Could not open video file: {input_video}")
+                fps = video.get(cv2.CAP_PROP_FPS)
+                frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+                duration = frame_count / fps if fps > 0 else 0
+                video.release()
+                scene_boundaries = [(0, duration)]
+        except Exception as e:
+            logger.error(f"Failed to auto-detect scenes: {e}", exc_info=True)
+            raise RuntimeError(f"Scene boundary auto-detection failed: {e}") from e
+    
+    logger.info(f"Processing {len(scene_boundaries)} scenes.")
 
     analysis_results_dir = os.path.join(project_path, "scene_analysis")
     scene_frames_dir = os.path.join(project_path, "scene_frames")
@@ -224,6 +288,7 @@ def analyze_scenes(
                         software_list=software_list,
                         ocr_lang=ocr_lang,
                         previous_analysis_summary=previous_gemini_summary,
+                        visual_similarity_threshold=visual_similarity_threshold,  # Pass the visual similarity parameter
                     )
                     scene_frame_analyses.append(frame_analysis_result)
                     if "error" in frame_analysis_result: error_in_scene = True
