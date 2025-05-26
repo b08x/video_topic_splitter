@@ -1,3 +1,4 @@
+# processing/video/scene_detection.py
 #!/usr/bin/env python3
 """Scene detection, frame extraction, and video splitting functionality.
 
@@ -23,20 +24,21 @@ from typing import Dict, List, Optional, Tuple
 # PySceneDetect imports
 from scenedetect import SceneManager, open_video
 from scenedetect.detectors import ContentDetector, AdaptiveDetector
-from scenedetect.scene_manager import save_images # Keep for frame extraction
+from scenedetect.scene_manager import save_images  # Keep for frame extraction
 from scenedetect.stats_manager import StatsManager
-from scenedetect.video_splitter import split_video_ffmpeg # Import for splitting
+from scenedetect.video_splitter import split_video_ffmpeg  # Import for splitting
 
 logger = logging.getLogger(__name__)
 
 
 def detect_scenes(
     video_path: str,
-    output_dir: str, # Base output dir for scene-related files (CSV, frames)
+    output_dir: str,  # Base output dir for scene-related files (CSV, frames)
     threshold: float = 27.0,
     min_scene_len_sec: float = 1.0,
     save_csv: bool = True,
-    short_video_threshold_sec: float = 60.0,  # Videos <= this length are considered "short"
+    # Videos <= this length are considered "short"
+    short_video_threshold_sec: float = 60.0,
 ) -> List[Tuple[float, float]]:
     """Detects scenes in a video using PySceneDetect's detectors.
 
@@ -92,15 +94,15 @@ def detect_scenes(
           for optimal performance on specific types of video content.
     """
     scene_boundaries_sec: List[Tuple[float, float]] = []
-    os.makedirs(output_dir, exist_ok=True) # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)  # Ensure output directory exists
 
-    video = None # Initialize video object
+    video = None  # Initialize video object
     try:
         # Open video using PySceneDetect
         video = open_video(video_path)
         fps = video.frame_rate
         if not fps or fps <= 0:
-             raise ValueError("Invalid or zero framerate detected.")
+            raise ValueError("Invalid or zero framerate detected.")
 
         # Get video duration in seconds
         video_duration_sec = video.duration.get_seconds()
@@ -113,18 +115,24 @@ def detect_scenes(
         stats_manager_content = StatsManager()
         scene_manager_content = SceneManager(stats_manager_content)
         scene_manager_content.add_detector(
-            ContentDetector(threshold=threshold, min_scene_len=min_scene_len_frames)
+            ContentDetector(threshold=threshold,
+                            min_scene_len=min_scene_len_frames)
         )
 
-        logger.info("Detecting scenes in %s (ContentDetector: threshold=%.1f, min_len=%.2f sec)...",
-                    video_path, threshold, min_scene_len_sec)
+        logger.info(
+            "Detecting scenes in %s (ContentDetector: threshold=%.1f, min_len=%.2f sec)...",
+            video_path,
+            threshold,
+            min_scene_len_sec,
+        )
         scene_manager_content.detect_scenes(video=video, show_progress=False)
         scene_list_timecodes = scene_manager_content.get_scene_list()
 
         # --- Attempt 2: AdaptiveDetector (Fallback) ---
         if not scene_list_timecodes:
-            logger.info("No scenes detected with ContentDetector. Trying AdaptiveDetector...")
-            video.reset() # Reset video position for the next detector
+            logger.info(
+                "No scenes detected with ContentDetector. Trying AdaptiveDetector...")
+            video.reset()  # Reset video position for the next detector
 
             stats_manager_adaptive = StatsManager()
             scene_manager_adaptive = SceneManager(stats_manager_adaptive)
@@ -138,20 +146,26 @@ def detect_scenes(
             )
 
             logger.info("Detecting scenes with AdaptiveDetector...")
-            scene_manager_adaptive.detect_scenes(video=video, show_progress=False)
+            scene_manager_adaptive.detect_scenes(
+                video=video, show_progress=False)
             scene_list_timecodes = scene_manager_adaptive.get_scene_list()
 
             if scene_list_timecodes:
-                logger.info("AdaptiveDetector found %d scenes.", len(scene_list_timecodes))
+                logger.info("AdaptiveDetector found %d scenes.",
+                            len(scene_list_timecodes))
             else:
-                logger.warning("No scenes detected with AdaptiveDetector either.")
+                logger.warning(
+                    "No scenes detected with AdaptiveDetector either.")
 
                 # --- Handle Short Videos with No Detected Scenes ---
                 if video_duration_sec <= short_video_threshold_sec:
-                    logger.info(f"Short video detected ({video_duration_sec:.2f} sec <= "
-                                f"{short_video_threshold_sec:.1f} sec). Creating a single scene.")
+                    logger.info(
+                        f"Short video detected ({video_duration_sec:.2f} sec <= "
+                        f"{short_video_threshold_sec:.1f} sec). Creating a single scene."
+                    )
                     start_tc = video.base_timecode
-                    end_tc = video.base_timecode + int(video_duration_sec * fps)
+                    end_tc = video.base_timecode + \
+                        int(video_duration_sec * fps)
                     # Ensure end_tc is at least one frame after start_tc if duration is very small
                     if end_tc.get_frames() <= start_tc.get_frames():
                         end_tc = start_tc + 1
@@ -173,53 +187,68 @@ def detect_scenes(
             try:
                 with open(csv_path, "w", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
-                    writer.writerow([
-                        "Scene", "Start Frame", "End Frame",
-                        "Start Time (sec)", "End Time (sec)", "Duration (sec)"
-                    ])
+                    writer.writerow(
+                        [
+                            "Scene",
+                            "Start Frame",
+                            "End Frame",
+                            "Start Time (sec)",
+                            "End Time (sec)",
+                            "Duration (sec)",
+                        ]
+                    )
                     # Use the timecode list for accurate frame numbers
                     for i, (start_tc, end_tc) in enumerate(scene_list_timecodes):
                         start_time_sec, end_time_sec = scene_boundaries_sec[i]
                         duration_sec = end_time_sec - start_time_sec
-                        writer.writerow([
-                            i + 1, # 1-based scene number
-                            start_tc.get_frames(),
-                            end_tc.get_frames(),
-                            f"{start_time_sec:.3f}",
-                            f"{end_time_sec:.3f}",
-                            f"{duration_sec:.3f}"
-                        ])
+                        writer.writerow(
+                            [
+                                i + 1,  # 1-based scene number
+                                start_tc.get_frames(),
+                                end_tc.get_frames(),
+                                f"{start_time_sec:.3f}",
+                                f"{end_time_sec:.3f}",
+                                f"{duration_sec:.3f}",
+                            ]
+                        )
                 logger.info("Scene list saved to %s", csv_path)
             except IOError as e_save:
-                 logger.error(f"Error writing scene list to CSV file {csv_path}: {e_save}")
+                logger.error(
+                    f"Error writing scene list to CSV file {csv_path}: {e_save}")
             except Exception as e_save:
-                 logger.error(f"Unexpected error saving scene list to CSV: {e_save}")
+                logger.error(
+                    f"Unexpected error saving scene list to CSV: {e_save}")
 
         return scene_boundaries_sec
 
     except FileNotFoundError:
         logger.error("Video file not found: %s", video_path)
-        raise # Re-raise the FileNotFoundError
-    except ValueError as e_val: # Catch specific framerate error
+        raise  # Re-raise the FileNotFoundError
+    except ValueError as e_val:  # Catch specific framerate error
         logger.error("Video processing error for %s: %s", video_path, e_val)
         raise
     except Exception as e:
-        logger.error("Error during scene detection for %s: %s", video_path, str(e), exc_info=True)
+        logger.error(
+            "Error during scene detection for %s: %s", video_path, str(e), exc_info=True
+        )
         # Wrap the original exception for better context
-        raise RuntimeError(f"Scene detection failed for {video_path}: {str(e)}") from e
+        raise RuntimeError(
+            f"Scene detection failed for {video_path}: {str(e)}") from e
     finally:
         # Ensure video file handle is released
         if video and hasattr(video, 'release'):
             try:
                 video.release()
             except Exception as e_release:
-                logger.warning(f"Error releasing video handle for {video_path}: {e_release}")
+                logger.warning(
+                    f"Error releasing video handle for {video_path}: {e_release}"
+                )
 
 
 def extract_scene_frames(
     video_path: str,
     scene_boundaries: List[Tuple[float, float]],
-    output_dir: str, # Dir where frame images will be saved
+    output_dir: str,  # Dir where frame images will be saved
     num_frames_per_scene: int = 1,
     frame_format: str = "jpg",
     jpg_quality: int = 90,
@@ -285,20 +314,23 @@ def extract_scene_frames(
           which might need adjustment based on how `detect_scenes` defines short videos.
     """
     if not scene_boundaries:
-        logger.warning("No scene boundaries provided for frame extraction. Returning empty list.")
+        logger.warning(
+            "No scene boundaries provided for frame extraction. Returning empty list."
+        )
         # Raise ValueError instead? Depends on desired strictness.
         # raise ValueError("Scene boundaries list cannot be empty for frame extraction.")
         return []
 
-    os.makedirs(output_dir, exist_ok=True) # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)  # Ensure output directory exists
     video = None
-    scene_info = [] # Initialize here for broader scope
+    scene_info = []  # Initialize here for broader scope
 
     try:
         video = open_video(video_path)
         fps = video.frame_rate
         if not fps or fps <= 0:
-             raise ValueError("Invalid or zero framerate detected for frame extraction.")
+            raise ValueError(
+                "Invalid or zero framerate detected for frame extraction.")
 
         # Determine number of frames to extract based on video type
         num_frames_to_extract = num_frames_per_scene
@@ -310,8 +342,10 @@ def extract_scene_frames(
             short_video_threshold_check = 60.0
             if duration <= short_video_threshold_check:
                 is_short_single_scene = True
-                logger.info(f"Detected short video with single scene ({duration:.2f} sec <= "
-                            f"{short_video_threshold_check:.1f} sec). Will extract {short_video_frames} frames.")
+                logger.info(
+                    f"Detected short video with single scene ({duration:.2f} sec <= "
+                    f"{short_video_threshold_check:.1f} sec). Will extract {short_video_frames} frames."
+                )
                 num_frames_to_extract = short_video_frames
             # else: num_frames_to_extract remains num_frames_per_scene
 
@@ -327,13 +361,19 @@ def extract_scene_frames(
             # Ensure end frame is at least one frame after start frame
             # PySceneDetect might handle this, but being explicit can prevent errors
             if end_tc.get_frames() <= start_tc.get_frames():
-                 logger.warning(f"Scene ending at {end_sec:.3f}s has end frame ({end_frame}) <= start frame ({start_frame}). Adjusting end frame.")
-                 end_tc = start_tc + 1 # Ensure minimum 1 frame duration for timecode pair
+                logger.warning(
+                    f"Scene ending at {end_sec:.3f}s has end frame ({end_frame}) <= start frame ({start_frame}). Adjusting end frame."
+                )
+                end_tc = start_tc + 1  # Ensure minimum 1 frame duration for timecode pair
 
             scene_list_timecodes.append((start_tc, end_tc))
 
-        logger.info("Extracting %d frame(s) per scene from %d scenes into %s...",
-                    num_frames_to_extract, len(scene_list_timecodes), output_dir)
+        logger.info(
+            "Extracting %d frame(s) per scene from %d scenes into %s...",
+            num_frames_to_extract,
+            len(scene_list_timecodes),
+            output_dir,
+        )
 
         # Use PySceneDetect's save_images function
         # Note: save_images uses 0-based scene indices internally for its dictionary keys
@@ -346,7 +386,7 @@ def extract_scene_frames(
             encoder_param=jpg_quality if frame_format.lower() == 'jpg' else None,
             # Naming template uses 1-based scene number ($SCENE_NUMBER)
             image_name_template='$SCENE_NUMBER-$IMAGE_NUMBER',
-            show_progress=False, # Keep logs cleaner
+            show_progress=False,  # Keep logs cleaner
         )
 
         # Structure the output with absolute paths and scene details
@@ -354,12 +394,14 @@ def extract_scene_frames(
         for i, (start_time, end_time) in enumerate(scene_boundaries):
             # Key for image_filenames_dict is the 0-based index `i`
             relative_frame_paths = image_filenames_dict.get(i, [])
-            absolute_frame_paths = [os.path.join(output_dir, f) for f in relative_frame_paths]
+            absolute_frame_paths = [
+                os.path.join(output_dir, f) for f in relative_frame_paths
+            ]
             total_frames_extracted += len(absolute_frame_paths)
 
             scene_info.append(
                 {
-                    "scene_id": i + 1, # User-facing scene ID is 1-based
+                    "scene_id": i + 1,  # User-facing scene ID is 1-based
                     "start_time": start_time,
                     "end_time": end_time,
                     "duration": end_time - start_time,
@@ -367,31 +409,226 @@ def extract_scene_frames(
                 }
             )
             if not absolute_frame_paths:
-                 logger.warning(f"No frames were extracted for scene {i+1} ({start_time:.2f}s - {end_time:.2f}s).")
-
+                logger.warning(
+                    f"No frames were extracted for scene {i+1} ({start_time:.2f}s - {end_time:.2f}s)."
+                )
 
         logger.info(
             "Extracted %d total frames from %d scenes.",
-            total_frames_extracted, len(scene_boundaries)
+            total_frames_extracted,
+            len(scene_boundaries),
         )
         return scene_info
 
     except FileNotFoundError:
-        logger.error("Video file not found for frame extraction: %s", video_path)
+        logger.error(
+            "Video file not found for frame extraction: %s", video_path)
         raise
-    except ValueError as e_val: # Catch specific framerate/boundary errors
-        logger.error("Invalid input for frame extraction from %s: %s", video_path, e_val)
+    except ValueError as e_val:  # Catch specific framerate/boundary errors
+        logger.error(
+            "Invalid input for frame extraction from %s: %s", video_path, e_val
+        )
         raise
     except Exception as e:
-        logger.error("Error extracting scene frames from %s: %s", video_path, str(e), exc_info=True)
-        raise RuntimeError(f"Frame extraction failed for {video_path}: {str(e)}") from e
+        logger.error(
+            "Error extracting scene frames from %s: %s", video_path, str(e), exc_info=True
+        )
+        raise RuntimeError(
+            f"Frame extraction failed for {video_path}: {str(e)}") from e
     finally:
         # Ensure video file handle is released
         if video and hasattr(video, 'release'):
-             try:
+            try:
                 video.release()
-             except Exception as e_release:
-                logger.warning(f"Error releasing video handle during frame extraction for {video_path}: {e_release}")
+            except Exception as e_release:
+                logger.warning(
+                    f"Error releasing video handle during frame extraction for {video_path}: {e_release}"
+                )
+
+
+def _process_csv_row(row: Dict[str, str], row_num: int, csv_path: str, start_col_name: str, end_col_name: str, scenes_list: List[Tuple[float, float]], logger: logging.Logger):
+    """Helper function to process a single row from the scenes CSV."""
+    start_time_str, end_time_str = None, None  # Initialize for error logging
+    try:
+        start_time_str = row[start_col_name]
+        end_time_str = row[end_col_name]
+        start_time = float(start_time_str)
+        end_time = float(end_time_str)
+        if end_time > start_time:
+            scenes_list.append((start_time, end_time))
+        else:
+            logger.warning(
+                f"Skipping invalid time range in row {row_num} of {csv_path}: start={start_time}, end={end_time}")
+    except KeyError as e:
+        logger.warning(
+            f"Missing expected key {e} in row {row_num} of {csv_path}. Skipping row. Row data: {row}")
+    except (ValueError, TypeError) as e:
+        start_log = f"'{start_time_str}'" if start_time_str is not None else "MISSING"
+        end_log = f"'{end_time_str}'" if end_time_str is not None else "MISSING"
+        logger.warning(
+            f"Invalid numeric value in row {row_num} of {csv_path} (Start: {start_log}, End: {end_log}). Error: {e}. Skipping row.")
+
+
+def read_scenes_from_csv(csv_path: str) -> List[Tuple[float, float]]:
+    """
+    Reads scene start and end times from a CSV file generated by PySceneDetect.
+
+    Handles CSVs with or without the initial PySceneDetect version line.
+    Expects a header row with columns 'Start Time (sec)' and 'End Time (sec)'. # <-- Updated expectation description
+
+    Args:
+        csv_path: Path to the scenes CSV file.
+
+    Returns:
+        A list of tuples, where each tuple is (start_time_sec, end_time_sec).
+        Returns an empty list if the file cannot be read or parsed correctly.
+
+    Raises:
+        FileNotFoundError: If the csv_path does not exist.
+        ValueError: If required columns are missing or time values are invalid.
+        Exception: For other potential CSV reading errors.
+    """
+    if not os.path.exists(csv_path):
+        logger.error(f"Scene CSV file not found: {csv_path}")
+        raise FileNotFoundError(f"Scene CSV file not found: {csv_path}")
+
+    scenes: List[Tuple[float, float]] = []
+    # --- CHANGE HERE: Match the actual CSV header format ---
+    required_cols_lower = ['start time (sec)', 'end time (sec)']
+    # --- END CHANGE ---
+    processed = False
+
+    try:
+        with open(csv_path, mode='r', encoding='utf-8') as csvfile:
+            # Store initial position and read first line
+            initial_pos = csvfile.tell()
+            first_line = csvfile.readline().strip()
+            after_first_line_pos = csvfile.tell()
+
+            # --- Attempt 1: Assume header is on the second line ---
+            try:
+                # Go to start of second line
+                csvfile.seek(after_first_line_pos)
+                reader = csv.DictReader(csvfile)
+                # Check if fieldnames were successfully read and match expected
+                if reader.fieldnames:
+                    header = [h.lower().strip() for h in reader.fieldnames]
+                    if all(col in header for col in required_cols_lower):
+                        logger.debug(
+                            f"CSV header found on second line: {reader.fieldnames}")
+                        start_col = reader.fieldnames[header.index(
+                            required_cols_lower[0])]
+                        end_col = reader.fieldnames[header.index(
+                            required_cols_lower[1])]
+                        # Line 1 version, Line 2 header
+                        for row_num, row in enumerate(reader, start=2):
+                            _process_csv_row(
+                                row, row_num, csv_path, start_col, end_col, scenes, logger)
+                        processed = True
+                        logger.info(
+                            f"Successfully read {len(scenes)} scene boundaries from {csv_path} (header on line 2)")
+                    else:
+                        logger.debug(
+                            f"CSV header not found on second line. Found: {reader.fieldnames}")
+                else:
+                    logger.debug(
+                        "CSV DictReader found no fieldnames assuming header on second line (likely empty file after line 1).")
+
+            except (StopIteration, csv.Error) as e:
+                # Handle errors like empty file after first line or malformed CSV
+                logger.debug(
+                    f"Error/EOF reading CSV assuming header on line 2: {e}. Checking first line.")
+            except Exception as e:
+                # Catch unexpected errors during processing
+                logger.warning(
+                    f"Unexpected error processing CSV assuming header on line 2: {e}", exc_info=True)
+
+            # --- Attempt 2: Assume header is on the first line (if Attempt 1 failed) ---
+            if not processed:
+                # Check if the first line we read looks like the header
+                # Use split(',') for robustness against extra spaces around commas
+                first_line_cols = [col.strip().lower()
+                                   for col in first_line.split(',')]
+                if all(col in first_line_cols for col in required_cols_lower):
+                    logger.debug(
+                        f"CSV header potentially found on first line: {first_line.split(',')}")
+                    try:
+                        csvfile.seek(initial_pos)  # Reset to beginning
+                        # Re-initialize, should use first line
+                        reader = csv.DictReader(csvfile)
+                        if reader.fieldnames:
+                            header = [h.lower().strip()
+                                      for h in reader.fieldnames]
+                            # Double-check header consistency
+                            if not all(col in header for col in required_cols_lower):
+                                # This path should ideally not be hit if the first_line_cols check passed,
+                                # but it's a safeguard against weird CSV parsing issues.
+                                raise ValueError(
+                                    f"Inconsistent header detection. First line looked like header '{first_line}', but DictReader got '{reader.fieldnames}'. Required: {required_cols_lower}")
+
+                            start_col = reader.fieldnames[header.index(
+                                required_cols_lower[0])]
+                            end_col = reader.fieldnames[header.index(
+                                required_cols_lower[1])]
+                            # Line 1 header
+                            for row_num, row in enumerate(reader, start=1):
+                                _process_csv_row(
+                                    row, row_num, csv_path, start_col, end_col, scenes, logger)
+                            processed = True
+                            logger.info(
+                                f"Successfully read {len(scenes)} scene boundaries from {csv_path} (header on line 1)")
+                        else:
+                            logger.warning(
+                                "CSV DictReader found no fieldnames assuming header on first line (likely empty file).")
+
+                    except (StopIteration, csv.Error, ValueError) as e:
+                        logger.error(
+                            f"Error reading CSV assuming header on line 1: {e}", exc_info=True)
+                        # Don't raise here, let it fall through to the final error if needed
+                    except Exception as e:
+                        logger.error(
+                            f"Unexpected error processing CSV assuming header on line 1: {e}", exc_info=True)
+
+            # --- If neither attempt worked ---
+            if not processed:
+                logger.error(f"CSV file '{csv_path}' does not contain the required header columns "
+                             f"'{required_cols_lower}' on the first or second line, or is improperly formatted.")
+                logger.debug(f"First line content: {first_line}")
+                # Attempt to read second line again for logging if possible
+                try:
+                    csvfile.seek(after_first_line_pos)
+                    second_line = csvfile.readline().strip()
+                    logger.debug(f"Second line content: {second_line}")
+                except Exception:
+                    logger.debug("Could not read second line for debugging.")
+                # Raise a specific error indicating failure
+                raise ValueError(
+                    f"CSV file '{csv_path}' missing required columns or has unexpected format.")
+
+    except FileNotFoundError:  # Already handled above, but good practice
+        raise
+    except csv.Error as e:
+        # Try to get line number if available
+        line_num_info = f" near line {reader.line_num}" if 'reader' in locals(
+        ) and hasattr(reader, 'line_num') else ""
+        logger.error(
+            f"CSV reading error in '{csv_path}'{line_num_info}: {e}", exc_info=True)
+        raise Exception(f"CSV reading error in '{csv_path}': {e}") from e
+    except Exception as e:
+        logger.error(
+            f"Failed to read or parse scene CSV '{csv_path}': {e}", exc_info=True)
+        raise  # Re-raise other unexpected errors
+
+    # Final check and sort
+    if not scenes and processed:  # If processed is true but scenes is empty
+        logger.warning(
+            f"Successfully parsed CSV '{csv_path}' but extracted 0 valid scene boundaries.")
+    elif not scenes and not processed:  # Should have been caught by the ValueError above
+        logger.error(
+            f"Failed to extract any scene boundaries from {csv_path}.")
+
+    scenes.sort(key=lambda x: x[0])
+    return scenes
 
 
 def split_video_by_scenes(
@@ -400,7 +637,7 @@ def split_video_by_scenes(
     output_dir: str,
     output_file_template: str = 'scene_$SCENE_NUMBER.mp4',
     show_progress: bool = True,
-    show_output: bool = False, # Keep ffmpeg logs chatty by default
+    show_output: bool = False,  # Keep ffmpeg logs chatty by default
 ) -> List[str]:
     """Splits a video into multiple segment files based on detected scene boundaries.
 
@@ -457,10 +694,11 @@ def split_video_by_scenes(
           at the start and end to account for potential minor inaccuracies in detection.
     """
     if not scene_list:
-        logger.warning("No scenes provided for splitting. Returning empty list.")
+        logger.warning(
+            "No scenes provided for splitting. Returning empty list.")
         return []
 
-    video = None # Initialize video object outside try block for finally clause
+    video = None  # Initialize video object outside try block for finally clause
     try:
         # Check for single scene spanning the whole video (optimization)
         if len(scene_list) == 1:
@@ -468,29 +706,40 @@ def split_video_by_scenes(
             # Need to open video briefly to get duration for comparison
             temp_video = open_video(video_path)
             video_duration = temp_video.duration.get_seconds()
-            
+
             # Safely close the video handle - check if release method exists
             if hasattr(temp_video, 'release'):
                 try:
                     temp_video.release()
                 except Exception as e_release:
-                    logger.warning(f"Error releasing temporary video handle: {e_release}")
+                    logger.warning(
+                        f"Error releasing temporary video handle: {e_release}"
+                    )
             # No need for an else clause - if release() doesn't exist, we just continue
 
             # Define a small tolerance for start/end times
-            time_tolerance = 0.5 # seconds
+            time_tolerance = 0.5  # seconds
 
-            if abs(start_time) < time_tolerance and abs(end_time - video_duration) < time_tolerance:
-                logger.info("Single scene spans the entire video (duration %.2fs). Skipping unnecessary splitting.", video_duration)
-                return [os.path.abspath(video_path)] # Return absolute path
+            if (
+                abs(start_time) < time_tolerance
+                and abs(end_time - video_duration) < time_tolerance
+            ):
+                logger.info(
+                    "Single scene spans the entire video (duration %.2fs). Skipping unnecessary splitting.",
+                    video_duration,
+                )
+                return [os.path.abspath(video_path)]  # Return absolute path
 
         # Proceed with splitting for multiple scenes or partial single scene
-        os.makedirs(output_dir, exist_ok=True) # Ensure output directory exists
+        # Ensure output directory exists
+        os.makedirs(output_dir, exist_ok=True)
 
         video = open_video(video_path)
         fps = video.frame_rate
         if not fps or fps <= 0:
-            raise ValueError("Invalid or zero framerate detected for video splitting.")
+            raise ValueError(
+                "Invalid or zero framerate detected for video splitting."
+            )
 
         # Convert scene boundaries (seconds) back to PySceneDetect Timecode objects
         scene_list_timecodes = []
@@ -502,12 +751,18 @@ def split_video_by_scenes(
 
             # Ensure end frame is valid and at least one frame after start
             if end_tc.get_frames() <= start_tc.get_frames():
-                 logger.warning(f"Scene ending at {end_sec:.3f}s has end frame ({end_frame}) <= start frame ({start_frame}) during splitting. Adjusting end frame.")
-                 end_tc = start_tc + 1
+                logger.warning(
+                    f"Scene ending at {end_sec:.3f}s has end frame ({end_frame}) <= start frame ({start_frame}) during splitting. Adjusting end frame."
+                )
+                end_tc = start_tc + 1
             scene_list_timecodes.append((start_tc, end_tc))
 
-        logger.info("Splitting video '%s' into %d scenes in directory: %s",
-                    os.path.basename(video_path), len(scene_list_timecodes), output_dir)
+        logger.info(
+            "Splitting video '%s' into %d scenes in directory: %s",
+            os.path.basename(video_path),
+            len(scene_list_timecodes),
+            output_dir,
+        )
 
         # Construct the full path template for output files
         full_output_template = os.path.join(output_dir, output_file_template)
@@ -517,15 +772,13 @@ def split_video_by_scenes(
         split_files_relative = split_video_ffmpeg(
             input_video_path=video_path,
             scene_list=scene_list_timecodes,
-            output_file_template=full_output_template, # Use the path constructed above
+            output_file_template=full_output_template,  # Use the path constructed above
             show_progress=show_progress,
             show_output=show_output,
             # Example: Add copy codec args explicitly if needed, though it's default
             # ffmpeg_args=['-map', '0', '-c', 'copy']
         )
 
-        # `split_video_ffmpeg` returns paths based on the template.
-        # Convert to absolute paths and verify existence/size.
         # `split_video_ffmpeg` returns paths based on the template.
         # Convert to absolute paths and verify existence/size.
         created_files_abs = []
@@ -537,7 +790,8 @@ def split_video_by_scenes(
         # Padding is at least 3 digits, or more if scene count exceeds 999.
         padding = max(3, len(str(expected_count)))
         expected_filenames = [
-            full_output_template.replace('$SCENE_NUMBER', str(i + 1).zfill(padding))
+            full_output_template.replace(
+                '$SCENE_NUMBER', str(i + 1).zfill(padding))
             for i in range(expected_count)
         ]
 
@@ -549,40 +803,45 @@ def split_video_by_scenes(
                 actual_count += 1
             else:
                 # Log missing/empty files even if show_output was False for ffmpeg
-                logger.warning(f"Expected split file not found or is empty: {abs_path}")
+                logger.warning(
+                    f"Expected split file not found or is empty: {abs_path}"
+                )
 
         if actual_count != expected_count:
-             logger.warning(f"Video splitting possibly incomplete: Expected {expected_count} segment files, but found {actual_count} valid files in {output_dir}. Check FFmpeg logs (rerun with show_output=True if needed).")
-             # Depending on requirements, could raise an error here:
-             # raise RuntimeError(f"Failed to create all expected video segments. Found {actual_count}/{expected_count}.")
+            logger.warning(
+                f"Video splitting possibly incomplete: Expected {expected_count} segment files, but found {actual_count} valid files in {output_dir}. Check FFmpeg logs (rerun with show_output=True if needed)."
+            )
+            # Depending on requirements, could raise an error here:
+            # raise RuntimeError(f"Failed to create all expected video segments. Found {actual_count}/{expected_count}.")
 
-        logger.info("Video splitting complete. Created %d segment file(s).", actual_count)
-        return created_files_abs
-
-        if actual_count != expected_count:
-             logger.warning(f"Video splitting possibly incomplete: Expected {expected_count} segment files, but found {actual_count} valid files in {output_dir}. Check FFmpeg logs (rerun with show_output=True if needed).")
-             # Depending on requirements, could raise an error here:
-             # raise RuntimeError(f"Failed to create all expected video segments. Found {actual_count}/{expected_count}.")
-
-        logger.info("Video splitting complete. Created %d segment file(s).", actual_count)
+        logger.info(
+            "Video splitting complete. Created %d segment file(s).", actual_count
+        )
         return created_files_abs
 
     except FileNotFoundError:
         logger.error("Video file not found for splitting: %s", video_path)
         raise
-    except ValueError as e_val: # Catch specific framerate error
-        logger.error("Video processing error during splitting of %s: %s", video_path, e_val)
+    except ValueError as e_val:  # Catch specific framerate error
+        logger.error(
+            "Video processing error during splitting of %s: %s", video_path, e_val
+        )
         raise
     except Exception as e:
-        logger.error("Error during video splitting for %s: %s", video_path, str(e), exc_info=True)
-        raise RuntimeError(f"Video splitting failed for {video_path}: {str(e)}") from e
+        logger.error(
+            "Error during video splitting for %s: %s", video_path, str(e), exc_info=True
+        )
+        raise RuntimeError(
+            f"Video splitting failed for {video_path}: {str(e)}") from e
     finally:
         # Ensure video file handle is released if it has a release method
         if video and hasattr(video, 'release'):
             try:
                 video.release()
             except Exception as e_release:
-                logger.warning(f"Error releasing video handle for {video_path}: {e_release}")
-        else:
-            logger.info("Video splitting complete.")
-
+                logger.warning(
+                    f"Error releasing video handle during splitting for {video_path}: {e_release}"
+                )
+        # This else block was misplaced and caused a syntax error. Removed.
+        # else:
+        #     logger.info("Video splitting complete.")

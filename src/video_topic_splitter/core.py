@@ -1,649 +1,1073 @@
+# core/core.py
 #!/usr/bin/env python3
-"""Core processing functionality for video scene splitter."""
+"""
+Core logic for video segmentation and analysis.
+Orchestrates the processing pipeline.
+"""
 
-import json
+import re
 import logging
 import os
-import shutil
-import csv
-from typing import Optional, List, Dict, Any, Tuple
+import time
+from typing import List, Tuple, Optional, Dict, Any
+import json
+import glob
+from moviepy.editor import VideoFileClip
 
-from deepgram import DeepgramClient, PrerecordedOptions
-from dotenv import load_dotenv
+# Import necessary modules
+try:
+    from .api.gemini import GeminiClient
+    # --- Add import for reading CSV ---
+    from .processing.video import scene_detection, video_segmentation
+    # --- End Add ---
+    from .processing.transcript import transcript_processing
+except ImportError:
+    # Fallback for different execution contexts if needed
+    from api.gemini import GeminiClient
+    # --- Add import for reading CSV ---
+    from processing.video import scene_detection, video_segmentation
+    # --- End Add ---
+    from processing.transcript import transcript_processing
 
-# Local application imports
-from .constants import CHECKPOINTS, NO_SCENES_DETECTED
-from .project import load_checkpoint, save_checkpoint
-from .utils.youtube import download_video, is_youtube_url
-from .processing.audio.audio import (convert_to_mono_and_resample,
-                                     extract_audio, normalize_audio,
-                                     remove_silence)
-from .processing.video.scene_detection import (detect_scenes,
-                                               split_video_by_scenes) # Keep for splitting
-# For visual analysis and multimodal topic modeling
-from .analysis.visual_analysis import analyze_scenes
-from .analysis.visual_topic_modeling import prepare_visual_frames_for_topic_modeling, process_transcript_with_visuals
-from .api.gemini import GeminiClient
-from .api.deepgram import transcribe_file_deepgram
-from .transcription import load_transcript, save_transcript, save_transcription
-
-
-load_dotenv()
 logger = logging.getLogger(__name__)
 
-# Note: handle_audio_video function remains largely the same as before
-# It processes audio and prepares it for transcription.
-def handle_audio_video(video_path, project_path, skip_unsilence=False):
+
+class VideoProcessor:
     """
-    Processes the audio track of a video file: normalization, optional silence
-    removal, extraction, and resampling, with checkpointing.
-    (Implementation details omitted for brevity - assume it's the same as previously shown)
+    Orchestrates the video processing pipeline.
     """
-    audio_dir = os.path.join(project_path, "audio")
-    os.makedirs(audio_dir, exist_ok=True)
-    logger.info(f"Audio processing outputs will be saved in: {audio_dir}")
 
-    # Checkpoint: PROJECT_CREATED implicitly handled by project folder creation
+    def __init__(self, gemini_client: GeminiClient):
+        """
+        Initializes the VideoProcessor with a GeminiClient instance.
 
-    video_name, video_ext = os.path.splitext(os.path.basename(video_path))
-    normalized_video_path = os.path.join(project_path, f"normalized_video{video_ext}")
-    unsilenced_video_path = os.path.join(project_path, f"unsilenced_video{video_ext}")
-    raw_audio_path = os.path.join(audio_dir, "extracted_audio.opus")
-    mono_resampled_audio_path = os.path.join(audio_dir, "mono_resampled_audio.m4a")
+        Args:
+            gemini_client: An instance of the GeminiClient for API interactions.
+        """
+        self.gemini_client = gemini_client
 
-    # Check for existing final processed files first
-    if os.path.exists(unsilenced_video_path) and os.path.exists(mono_resampled_audio_path):
-        logger.info("Found existing processed audio/video files. Using cached versions.")
-        # Ensure checkpoint reflects this if loading from cache
-        save_checkpoint(
-            project_path,
-            CHECKPOINTS["AUDIO_PROCESSED"],
-            {
-                "processed_video_path": unsilenced_video_path,
-                "processed_audio_path": mono_resampled_audio_path,
-            },
-        )
-        return unsilenced_video_path, mono_resampled_audio_path
+    def _write_analysis_to_json(self, data: Dict[str, Any], output_dir: str, filename: str = "analysis_results.json"):
+        """
+        Writes the analysis data (including metadata and segments) to a JSON file.
 
-    current_video_path = video_path # Start with original video
-
-    # --- Normalization Step ---
-    if not os.path.exists(normalized_video_path):
-        logger.info("Normalizing audio...")
-        normalize_result = normalize_audio(current_video_path, normalized_video_path)
-        if normalize_result["status"] == "error":
-            logger.error(f"Audio normalization failed: {normalize_result['message']}")
-            raise RuntimeError("Audio normalization failed")
-        logger.info("Audio normalization complete.")
-        current_video_path = normalized_video_path # Update path
-    else:
-        logger.info("Using existing normalized video file.")
-        current_video_path = normalized_video_path
-
-    # --- Silence Removal Step ---
-    if not os.path.exists(unsilenced_video_path):
-        if skip_unsilence:
-            logger.info("Skipping silence removal as requested.")
+        Args:
+            data: The dictionary containing analysis results (metadata, segments, errors).
+            output_dir: The directory to save the JSON file.
+            filename: The name for the output JSON file.
+        """
+        output_path = os.path.join(output_dir, filename)
+        try:
+            os.makedirs(output_dir, exist_ok=True)  # Ensure directory exists
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+            logger.info(
+                f"Successfully wrote analysis results to {output_path}")
+        except IOError as e:
+            logger.error(
+                f"Failed to write analysis results to {output_path}: {e}", exc_info=True)
+        except TypeError as e:
+            logger.error(
+                f"Failed to serialize analysis data to JSON: {e}", exc_info=True)
+            # Optionally write a partial or error state file
             try:
-                shutil.copy2(current_video_path, unsilenced_video_path)
-                logger.info(f"Copied {os.path.basename(current_video_path)} to {os.path.basename(unsilenced_video_path)}")
-            except Exception as e:
-                 logger.error(f"Failed to copy normalized video for skipping unsilence: {e}")
-                 raise RuntimeError("Failed to prepare video for skipping unsilence step.") from e
-        else:
-            logger.info("Removing silence...")
-            silence_removal_result = remove_silence(
-                current_video_path, unsilenced_video_path
-            )
-            if silence_removal_result["status"] == "error":
-                logger.warning(f"Silence removal failed: {silence_removal_result['message']}. Proceeding with normalized video.")
-                # Fallback: copy normalized if unsilence failed to create output
-                if not os.path.exists(unsilenced_video_path):
-                     try:
-                        shutil.copy2(current_video_path, unsilenced_video_path)
-                        logger.info(f"Using normalized video as fallback: {os.path.basename(unsilenced_video_path)}")
-                     except Exception as e:
-                         logger.error(f"Failed to copy normalized video as fallback: {e}")
-                         raise RuntimeError("Silence removal failed and fallback copy also failed.") from e
+                # Attempt to write at least the error info
+                error_data = data.copy()  # Avoid modifying original data if possible
+                error_data["serialization_error"] = f"Failed to serialize data: {e}"
+                with open(output_path, "w", encoding="utf-8") as f:
+                    # Try dumping what we can, might still fail if complex objects are the issue
+                    # Use default=str as fallback
+                    json.dump(error_data, f, indent=4, default=str)
+                logger.warning(
+                    f"Wrote partial/error information to {output_path}")
+            except Exception as write_err:
+                logger.error(
+                    f"Could not even write error file to {output_path}: {write_err}")
+
+    def process_video(
+        self, video_path: str, output_dir: str, use_scene_detection: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Processes the video, segmenting it, analyzing the segments, and saving the results to JSON.
+
+        Args:
+            video_path: Path to the input video file.
+            output_dir: Directory to store output files (e.g., segments, analysis results).
+            use_scene_detection: Whether to use scene detection as a first pass.
+
+        Returns:
+            A dictionary containing the processing metadata and segment analysis results,
+            or None if a critical error occurred early on.
+        """
+        logger.info(f"Processing video: {video_path}")
+        segments_data: List[dict] = []
+        processing_metadata: Dict[str, Any] = {
+            "video_path": video_path,
+            "output_dir": output_dir,
+            "use_scene_detection_flag": use_scene_detection,
+            "parsed_transcript_sentences": 0,
+            "parsed_gemini_scene_boundaries": 0,
+            "pyscenedetect_boundaries_found": 0,
+            "pyscenedetect_run": False,  # Initialize here
+            "pyscenedetect_succeeded": False,  # Initialize here
+            # 'Gemini', 'PySceneDetect', 'PySceneDetect (Existing CSV)', 'Fallback', 'None'
+            "final_boundaries_source": "None",
+        }
+        errors_list: List[Dict[str, str]] = []
+        output_json_filename = "analysis_results.json"
+
+        final_results: Dict[str, Any] = {
+            "processing_metadata": processing_metadata,
+            "segments": segments_data,
+            "errors": errors_list
+        }
+
+        try:
+            # Ensure the main output directory exists early
+            os.makedirs(output_dir, exist_ok=True)
+
+            # 1. Generate transcript and optionally detect scene changes using Gemini
+            # ... (Gemini transcript/boundary fetching remains the same) ...
+            gemini_response_text = self._generate_transcript_and_metadata(
+                video_path)
+
+            if "Analysis failed" in gemini_response_text:
+                error_msg = f"Gemini analysis failed early: {gemini_response_text}"
+                logger.error(error_msg)
+                errors_list.append(
+                    {"step": "gemini_metadata", "message": error_msg})
+                self._write_analysis_to_json(
+                    final_results, output_dir, output_json_filename)
+                return None
+
+            transcript = self._parse_transcript(gemini_response_text)
+            processing_metadata["parsed_transcript_sentences"] = len(
+                transcript)
+
+            gemini_scene_boundaries = self._parse_scene_boundaries(
+                gemini_response_text)
+            processing_metadata["parsed_gemini_scene_boundaries"] = len(
+                gemini_scene_boundaries)
+
+            # 2. Detect scene changes using PySceneDetect or load existing results
+            scene_boundaries: List[Tuple[float, float]] = []
+            # Metadata flags moved to initialization
+
+            if use_scene_detection:
+                # Mark that we intended to use it
+                processing_metadata["pyscenedetect_run"] = True
+                logger.info("Checking for PySceneDetect results...")
+                scene_detection_dir = os.path.join(
+                    output_dir, "scene_detection")
+                os.makedirs(scene_detection_dir, exist_ok=True)
+
+                # Construct the expected CSV path
+                # scene_csv_path = os.path.join(
+                #     scene_detection_dir, f"{os.path.splitext(os.path.basename(video_path))[0]}-Scenes.csv")
+                scene_csv_path = os.path.join(scene_detection_dir, "scenes.csv") # Alternative fixed name
+
+                # --- Modified Logic: Check and Load or Run ---
+                if os.path.exists(scene_csv_path):
+                    logger.info(
+                        f"Found existing scene file: '{scene_csv_path}'. Attempting to load boundaries from it.")
+                    try:
+                        # *** Assumes scene_detection.read_scenes_from_csv exists ***
+                        # This function should read the CSV and return List[Tuple[float, float]]
+                        # It should handle potential errors during file reading/parsing.
+                        scene_boundaries = scene_detection.read_scenes_from_csv(
+                            scene_csv_path)
+                        processing_metadata["pyscenedetect_boundaries_found"] = len(
+                            scene_boundaries)
+                        processing_metadata[
+                            "final_boundaries_source"] = "PySceneDetect (Existing CSV)"
+                        # We successfully got boundaries
+                        processing_metadata["pyscenedetect_succeeded"] = True
+                        logger.info(
+                            f"Successfully loaded {len(scene_boundaries)} scene boundaries from existing CSV.")
+                    except Exception as csv_err:
+                        error_msg = f"Failed to read or parse existing scene CSV '{scene_csv_path}': {csv_err}. Will attempt to run detection."
+                        logger.error(error_msg, exc_info=True)
+                        errors_list.append(
+                            {"step": "pyscenedetect_read_csv", "message": error_msg})
+                        # Reset flags as we didn't succeed in loading
+                        processing_metadata["pyscenedetect_succeeded"] = False
+                        processing_metadata["final_boundaries_source"] = "None (CSV Read Error)"
+                        # Fall through to run detection below
+                        scene_boundaries = []  # Ensure it's empty before trying detection
+
+                # If CSV didn't exist OR reading it failed, run detection
+                if not processing_metadata["pyscenedetect_succeeded"]:
+                    logger.info(
+                        "Existing scene CSV not found or failed to load. Running PySceneDetect.")
+                    try:
+                        detected_scenes = scene_detection.detect_scenes(
+                            video_path, scene_detection_dir)
+                        scene_boundaries = detected_scenes
+                        processing_metadata["pyscenedetect_boundaries_found"] = len(
+                            detected_scenes)
+                        processing_metadata["final_boundaries_source"] = "PySceneDetect"
+                        processing_metadata["pyscenedetect_succeeded"] = True
+                        logger.info(
+                            f"PySceneDetect successfully found {len(detected_scenes)} scenes.")
+                    except Exception as sd_err:
+                        error_msg = f"PySceneDetect failed: {sd_err}"
+                        logger.error(error_msg, exc_info=True)
+                        errors_list.append(
+                            {"step": "pyscenedetect_run", "message": error_msg})
+                        # Mark failure
+                        processing_metadata["pyscenedetect_succeeded"] = False
+                        # Fallback logic (only if detection failed)
+                        if gemini_scene_boundaries:
+                            logger.warning(
+                                "Falling back to Gemini scene boundaries after PySceneDetect error.")
+                            scene_boundaries = gemini_scene_boundaries
+                            processing_metadata["final_boundaries_source"] = "Fallback (Gemini)"
+                        else:
+                            logger.warning(
+                                "No scene boundaries available after PySceneDetect error.")
+                            processing_metadata["final_boundaries_source"] = "None (PySceneDetect Error)"
+                            scene_boundaries = []  # Ensure empty list
+
+            # --- End Modified Logic ---
+
+            # If scene detection was disabled or failed without fallback, check Gemini
+            elif gemini_scene_boundaries:
+                logger.info(
+                    "Using scene boundaries provided by Gemini (PySceneDetect disabled or failed without fallback).")
+                scene_boundaries = gemini_scene_boundaries
+                processing_metadata["final_boundaries_source"] = "Gemini"
             else:
-                logger.info("Silence removal complete.")
-    else:
-         logger.info("Using existing unsilenced video file.")
+                logger.info(
+                    "Scene detection disabled and no Gemini boundaries found.")
+                processing_metadata["final_boundaries_source"] = "None (Disabled/Not Found)"
 
-    # Update current video path to the one that will be used for extraction
-    current_video_path_for_extraction = unsilenced_video_path
+            # 3. Segment and analyze each scene
+            # ... (rest of the segmentation/analysis loop remains the same) ...
+            if scene_boundaries:
+                logger.info(
+                    f"Processing {len(scene_boundaries)} detected scenes using boundaries from '{processing_metadata['final_boundaries_source']}'.")
+                for i, (start_time, end_time) in enumerate(scene_boundaries):
+                    logger.info(
+                        f"Processing Scene {i+1}: {start_time:.2f}s - {end_time:.2f}s")
+                    scene_output_dir = os.path.join(
+                        output_dir, f"scene_{i+1:03d}")
+                    os.makedirs(scene_output_dir, exist_ok=True)
+                    try:
+                        scene_segments = self._process_scene(
+                            video_path, scene_output_dir, transcript, start_time, end_time
+                        )
+                        segments_data.extend(scene_segments)
+                    except Exception as scene_err:
+                        error_msg = f"Error processing scene {i+1} ({start_time:.2f}s-{end_time:.2f}s): {scene_err}"
+                        logger.error(error_msg, exc_info=True)
+                        errors_list.append(
+                            {"step": f"process_scene_{i+1}", "message": error_msg})
 
+            else:
+                # Process the entire video as one segment
+                logger.info(
+                    "No scene boundaries defined, processing entire video as one scene.")
+                try:
+                    # Use the main output_dir for segments when processing as one scene
+                    all_segments = self._process_scene(
+                        video_path, output_dir, transcript)
+                    segments_data.extend(all_segments)
+                except Exception as full_video_err:
+                    error_msg = f"Error processing full video as one scene: {full_video_err}"
+                    logger.error(error_msg, exc_info=True)
+                    errors_list.append(
+                        {"step": "process_full_video", "message": error_msg})
 
-    # --- Audio Extraction Step ---
-    if not os.path.exists(raw_audio_path):
-        logger.info(f"Extracting audio from {os.path.basename(current_video_path_for_extraction)}...")
-        try:
-            extract_audio(current_video_path_for_extraction, raw_audio_path)
-            logger.info("Audio extraction complete.")
+            logger.info(
+                f"Finished processing. Generated data for {len(segments_data)} segments.")
+
+            # 4. Write the final results to JSON
+            final_results["segments"] = segments_data
+            final_results["errors"] = errors_list
+            self._write_analysis_to_json(
+                final_results, output_dir, output_json_filename)
+
+            return final_results
+
         except Exception as e:
-            logger.error(f"Audio extraction failed: {str(e)}")
-            raise # Re-raise critical error
-    else:
-        logger.info("Using existing extracted raw audio file.")
+            error_msg = f"Critical error during video processing '{video_path}': {e}"
+            logger.error(error_msg, exc_info=True)
+            errors_list.append(
+                {"step": "main_process_video", "message": error_msg})
+            final_results["segments"] = segments_data
+            final_results["errors"] = errors_list
+            self._write_analysis_to_json(
+                final_results, output_dir, output_json_filename)
+            return None
 
-    # --- Conversion and Resampling Step ---
-    if not os.path.exists(mono_resampled_audio_path):
-        logger.info("Converting audio to mono and resampling...")
-        conversion_result = convert_to_mono_and_resample(
-            raw_audio_path, mono_resampled_audio_path
+    def _generate_transcript_and_metadata(self, video_path: str) -> str:
+        """
+        Generates the transcript and optionally detects scene changes using the Gemini API.
+
+        Args:
+            video_path: Path to the input video file.
+
+        Returns:
+            The raw string response from the Gemini API.
+        """
+        gemini_prompt = (
+            "Transcribe this video, providing timestamps for each utterance in a JSON list format. "
+            "Each item should have 'start_time', 'end_time', and 'transcript' keys. "
+            "If possible, also identify scene changes and include them in the JSON response "
+            "as a list under the key 'scene_boundaries', where each item has 'start_time' and 'end_time'."
+            " Respond ONLY with the JSON object."  # Explicitly ask for JSON only
         )
-        if conversion_result["status"] == "error":
-            logger.error(f"Audio conversion failed: {conversion_result['message']}")
-            raise RuntimeError("Audio conversion failed")
-        logger.info("Audio conversion and resampling complete.")
-    else:
-        logger.info("Using existing mono resampled audio file.")
+        logger.info("Requesting transcript and scene boundaries from Gemini...")
+        gemini_response = self.gemini_client.analyze(gemini_prompt, video_path)
+        # Log beginning of response
+        logger.debug(
+            f"Raw Gemini response for metadata: {gemini_response[:500]}...")
+        return gemini_response
 
-    # --- Final Check and Checkpointing ---
-    if os.path.exists(unsilenced_video_path) and os.path.exists(mono_resampled_audio_path):
-        save_checkpoint(
-            project_path,
-            CHECKPOINTS["AUDIO_PROCESSED"],
-            {
-                "processed_video_path": unsilenced_video_path,
-                "processed_audio_path": mono_resampled_audio_path,
-            },
-        )
-        logger.info("Audio processing checkpoint saved.")
-    else:
-        # This case should ideally not be reached if checks above passed, but added for safety
-        logger.error("Final processed audio/video files not found after processing steps. Checkpoint not saved.")
-        raise RuntimeError("Audio processing finished but expected output files are missing.")
+    def _process_scene(
+        self,
+        video_path: str,
+        output_dir: str,  # Directory for this scene's segments
+        transcript: List[dict],
+        scene_start: Optional[float] = None,
+        scene_end: Optional[float] = None,
+    ) -> List[dict]:
+        """
+        Segments and analyzes a single scene (or the entire video). Checks for
+        existing segment files and analysis files before starting segmentation.
 
-    return unsilenced_video_path, mono_resampled_audio_path
+        Args:
+            video_path: Path to the input video file.
+            output_dir: Directory to store output files for this scene/video.
+            transcript: The transcript of the video.
+            scene_start: Start time of the scene (optional, for scene-based processing).
+            scene_end: End time of the scene (optional, for scene-based processing).
 
+        Returns:
+            A list of dictionaries, where each dictionary represents a video segment
+            and its analysis.
+        """
+        scene_segments_data: List[dict] = []
+        # Filter transcript for the current scene
+        if scene_start is not None and scene_end is not None:
+            scene_transcript = transcript_processing.filter_transcript_by_time_range(
+                transcript, scene_start, scene_end
+            )
+            logger.info(
+                f"Filtered transcript contains {len(scene_transcript)} items for the current scene.")
+        else:
+            scene_transcript = transcript  # Use the whole transcript
+            logger.info(
+                "Using full transcript as no scene boundaries were specified.")
 
-# Note: handle_transcription_and_scene_detection remains largely the same
-# It handles transcription and scene detection concurrently/sequentially.
-def handle_transcription_and_scene_detection(
-    audio_path: str,
-    video_path: str, # Needed for scene detection
-    project_path: str,
-    api: str = "deepgram",
-    scene_threshold: float = 27.0,
-    min_scene_len_sec: float = 1.0,
-) -> tuple[Optional[list], Optional[list]]:
-    """
-    Handles audio transcription and video scene detection.
-    (Implementation details omitted for brevity - assume it's the same as previously shown)
-    Saves checkpoints: TRANSCRIPTION_COMPLETE, SCENES_DETECTED, NO_SCENES_DETECTED
-    """
-    # --- Transcription ---
-    transcript_path = os.path.join(project_path, "transcript.json")
-    full_transcription_path = os.path.join(project_path, "full_transcription.json")
-    transcript = None
-    if os.path.exists(transcript_path):
-        logger.info("Loading existing simplified transcript...")
+        # --- Check for existing segment files before proceeding ---
+        existing_segments = []
         try:
-            transcript = load_transcript(transcript_path)
-            logger.info("Transcript loaded.")
+            # Use a pattern that matches the expected segment filenames
+            segment_pattern = os.path.join(output_dir, "segment_*.mp4")
+            existing_segments = glob.glob(segment_pattern)
+            if existing_segments:
+                logger.info(f"Found {len(existing_segments)} existing segment file(s) matching pattern '{segment_pattern}' in {output_dir}.")
         except Exception as e:
-             logger.warning(f"Failed to load existing transcript ({transcript_path}): {e}. Will re-transcribe.")
-             transcript = None # Ensure re-transcription
+            logger.error(
+                f"Error checking for existing segment files in {output_dir}: {e}", exc_info=True)
+        # --- End Check ---
 
-    if transcript is None:
-        logger.info("Transcribing audio...")
-        deepgram_key = os.getenv("DG_API_KEY")
-        if not deepgram_key:
-            raise ValueError("DG_API_KEY environment variable is not set")
+        # If we have existing segments, use them instead of creating new ones
+        segment_timestamps_paths = []
+        if existing_segments:
+            logger.info("Using existing segment files instead of creating new ones.")
+            for segment_path in existing_segments:
+                try:
+                    # Extract start and end times from the segment file if possible
+                    # This is a fallback approach since we don't have the original timestamps
+                    with VideoFileClip(segment_path) as clip:
+                        # For existing segments where we don't know the exact timestamps,
+                        # we'll use relative positions within the scene
+                        if scene_start is not None and scene_end is not None:
+                            # If we know scene boundaries, estimate segment position within scene
+                            segment_duration = clip.duration
+                            segment_index = int(os.path.basename(segment_path).split('_')[1])
+                            total_segments = len(existing_segments)
+                            scene_duration = scene_end - scene_start
+                            
+                            # Estimate start and end times based on segment position in scene
+                            estimated_start = scene_start + (scene_duration * (segment_index - 1) / total_segments)
+                            estimated_end = estimated_start + segment_duration
+                            
+                            # Ensure we don't exceed scene boundaries
+                            estimated_start = max(estimated_start, scene_start)
+                            estimated_end = min(estimated_end, scene_end)
+                            
+                            segment_timestamps_paths.append((estimated_start, estimated_end, segment_path))
+                        else:
+                            # If we don't know scene boundaries, just use 0 as start time
+                            segment_timestamps_paths.append((0, clip.duration, segment_path))
+                except Exception as e:
+                    logger.error(f"Error processing existing segment {segment_path}: {e}", exc_info=True)
+                    # Add with unknown timestamps
+                    segment_timestamps_paths.append((0, 0, segment_path))
+        else:
+            # No existing segments found, proceed with normal segmentation
+            logger.info("No existing segments found. Proceeding with segmentation.")
+            
+            # 1. Identify silent periods
+            silent_periods = self._detect_silent_periods(scene_transcript)
 
-        if api == "deepgram":
-            try:
-                deepgram_client = DeepgramClient(deepgram_key)
-                deepgram_options = PrerecordedOptions(
-                    model="nova-2", language="en", smart_format=True,
-                    punctuate=True, utterances=True,
-                )
-                transcription = transcribe_file_deepgram(
-                    deepgram_client, audio_path, deepgram_options
-                )
-                save_transcription(transcription, project_path) # Save full response
+            # 2. Segment the scene based on silent periods
+            # Pass scene_start/end to determine segment boundaries correctly
+            segment_timestamps_paths = self._align_timestamps_and_segment(
+                video_path, output_dir, scene_start, scene_end, silent_periods
+            )
 
-                # Extract simplified transcript
-                if transcription and "results" in transcription and "utterances" in transcription["results"]:
-                    transcript = [
-                        {"content": utt["transcript"], "start": utt["start"], "end": utt["end"]}
-                        for utt in transcription["results"]["utterances"]
-                    ]
-                    save_transcript(transcript, project_path) # Save simplified version
-                    logger.info("Transcription complete and saved.")
+        # 3. Analyze each segment
+        if not segment_timestamps_paths:
+            logger.warning("No segments were created or found for this scene.")
+            return []
+
+        logger.info(
+            f"Analyzing {len(segment_timestamps_paths)} segments for this scene...")
+        for segment_start, segment_end, segment_path in segment_timestamps_paths:
+            if segment_path == "ERROR_PATH_MISSING":
+                logger.error(
+                    f"Skipping analysis for segment {segment_start}-{segment_end} due to missing file.")
+                continue
+            # Check if the segment file actually exists before analysis (belt-and-suspenders)
+            if not os.path.exists(segment_path):
+                logger.error(
+                    f"Segment file reported by segmentation step not found: {segment_path}. Skipping analysis.")
+                continue
+
+            # Check if an analysis file already exists for this segment
+            segment_dir = os.path.dirname(segment_path)
+            segment_basename = os.path.basename(segment_path)
+            segment_name = os.path.splitext(segment_basename)[0]  # Remove extension
+            analysis_filename = f"{segment_name}_analysis.json"
+            analysis_path = os.path.join(segment_dir, analysis_filename)
+            
+            analysis = None
+            if os.path.exists(analysis_path):
+                # Load existing analysis if available
+                try:
+                    logger.info(f"Found existing analysis file: {analysis_path}")
+                    with open(analysis_path, 'r', encoding='utf-8') as f:
+                        analysis = json.load(f)
+                    # Remove metadata fields that should not be part of the analysis dict
+                    if "segment_path" in analysis:
+                        analysis.pop("segment_path")
+                    if "analysis_timestamp" in analysis:
+                        analysis.pop("analysis_timestamp")
+                    logger.info(f"Successfully loaded existing analysis for {segment_path}")
+                except Exception as e:
+                    logger.error(f"Error loading existing analysis file {analysis_path}: {e}", exc_info=True)
+                    analysis = None
+            
+            # If no valid existing analysis was loaded, perform analysis
+            if analysis is None:
+                logger.info(f"No valid existing analysis found for {segment_path}. Performing analysis.")
+                analysis = self._analyze_segment(segment_path)
+                # Note: _analyze_segment now saves the analysis to a JSON file
+
+            scene_segments_data.append(
+                {
+                    "segment_start": segment_start,
+                    "segment_end": segment_end,
+                    "segment_path": segment_path,
+                    "analysis": analysis,  # Contains parsed summary and topics
+                }
+            )
+
+        return scene_segments_data
+
+    # --- Parsing Methods ---
+
+    def _parse_transcript(self, gemini_response: str) -> List[dict]:
+        """
+        Parses the transcript from the Gemini API response.
+        Includes cleaning for potential markdown fences.
+
+        Args:
+            gemini_response: The raw text response from the Gemini API (JSON string).
+
+        Returns:
+            A list of transcript dictionaries.
+        """
+        if not gemini_response or not gemini_response.strip():
+            logger.warning("Received empty Gemini response for transcript.")
+            return []
+
+        cleaned_text = gemini_response.strip()
+        # Clean potential markdown fences
+        if cleaned_text.startswith("```json"):
+            cleaned_text = cleaned_text[7:-3].strip()
+        elif cleaned_text.startswith("```"):
+            cleaned_text = cleaned_text[3:-3].strip()
+
+        if not cleaned_text:
+            logger.warning(
+                "Gemini response for transcript became empty after cleaning.")
+            return []
+
+        logger.debug(
+            f"Attempting to parse transcript JSON: {cleaned_text[:100]}...")
+        try:
+            data = json.loads(cleaned_text)
+            # Log type
+            logger.debug(f"Successfully parsed JSON. Data type: {type(data)}")
+
+            # --- Add detailed logging for dictionaries ---
+            if isinstance(data, dict):
+                logger.debug(
+                    f"Parsed JSON dictionary keys: {list(data.keys())}")
+                # Optional: Log the full dict if it's not excessively large for debugging
+                # logger.debug(f"Parsed JSON dictionary content: {data}")
+            # --- End Add ---
+
+            # Check if the response is a dictionary or list
+            if isinstance(data, dict):
+                logger.debug(
+                    "Parsed transcript response as dict. Looking for 'transcript', 'text', or 'utterances' key.")
+                # Check for 'transcript' first, then 'text', then 'utterances'
+                transcript = None
+                if "transcript" in data and isinstance(data["transcript"], list):
+                    transcript = data["transcript"]
+                    logger.debug("Found 'transcript' key with a list.")
+                elif "text" in data and isinstance(data["text"], list):
+                    transcript = data["text"]
+                    logger.debug("Found 'text' key with a list.")
+                # --- Add check for 'utterances' ---
+                elif "utterances" in data and isinstance(data["utterances"], list):
+                    transcript = data["utterances"]
+                    logger.debug("Found 'utterances' key with a list.")
+                # --- End Add ---
+                # You can add more elif checks here if Gemini uses other keys in the future
+
+                if transcript is None:
+                    # Log the structure that *was* received when the expected keys are missing
+                    logger.warning(
+                        f"Could not find a suitable transcript list within the dictionary response. Keys found: {list(data.keys())}")
+                    # Log the problematic data structure for debugging
+                    # Log the actual data
+                    logger.debug(f"Problematic dictionary structure: {data}")
+                    return []
+
+                # --- Key Name Standardization (Important!) ---
+                # Now that we've found the list (under 'transcript', 'text', or 'utterances'),
+                # we need to make sure the *items* within that list have the keys our code expects later
+                # (e.g., 'text', 'start_time', 'end_time').
+                # The prompt asked for 'transcript' inside each item, but Gemini might return 'text' or something else.
+                # Let's standardize the text key within each sentence dictionary.
+
+                standardized_transcript = []
+                for sentence_dict in transcript:
+                    if not isinstance(sentence_dict, dict):
+                        logger.warning(
+                            f"Skipping non-dictionary item in transcript list: {sentence_dict}")
+                        continue
+
+                    # Find the actual text key ('transcript', 'text', 'utterance', etc.)
+                    text_content = None
+                    # Add more possibilities if needed
+                    possible_text_keys = ["transcript",
+                                          "text", "utterance", "content"]
+                    found_key = None
+                    for key in possible_text_keys:
+                        if key in sentence_dict:
+                            text_content = sentence_dict[key]
+                            found_key = key
+                            break
+
+                    if text_content is None:
+                        logger.warning(
+                            f"Could not find text content key in sentence dict: {sentence_dict}")
+                        continue
+
+                    # Create a new standardized dict or modify in place
+                    standardized_sentence = sentence_dict.copy()  # Work on a copy
+                    if found_key != "text":  # Standardize to 'text'
+                        standardized_sentence["text"] = standardized_sentence.pop(
+                            found_key)
+
+                    standardized_transcript.append(standardized_sentence)
+
+                # Use the standardized list for further validation
+                transcript = standardized_transcript
+                # --- End Key Name Standardization ---
+
+            elif isinstance(data, list):
+                # If the top level is a list, assume it's the transcript directly
+                logger.debug("Parsed transcript response directly as list.")
+                transcript = data
+                # Apply standardization here too if necessary
+                standardized_transcript = []
+                for sentence_dict in transcript:
+                    # ... (add standardization logic similar to above) ...
+                    standardized_transcript.append(standardized_sentence)
+                transcript = standardized_transcript
+
+            else:
+                logger.warning(
+                    f"Unexpected JSON structure for transcript: {type(data)}. Expecting list or dict.")
+                return []
+
+            # Validate each sentence
+            valid_sentences = []
+            for i, sentence in enumerate(transcript):
+                if not isinstance(sentence, dict):
+                    logger.warning(f"Skipping sentence {i}: not a dictionary")
+                    continue
+                # --- Make sure the key here matches your prompt ('text' or 'transcript') ---
+                text_key = "transcript" if "transcript" in sentence else "text"
+                if text_key not in sentence:
+                    logger.warning(
+                        f"Skipping sentence {i}: missing '{text_key}' field")
+                    continue
+                # Standardize to 'text' key internally if needed
+                if text_key != "text":
+                    sentence["text"] = sentence.pop(text_key)
+                # --- End Key Check ---
+
+                if "start_time" not in sentence:
+                    logger.warning(
+                        f"Sentence {i} missing 'start_time', defaulting to 0.0")
+                    sentence["start_time"] = 0.0
+                if "end_time" not in sentence:
+                    logger.warning(
+                        f"Sentence {i} missing 'end_time', defaulting to 0.0")
+                    sentence["end_time"] = 0.0
+
+                # Ensure times are floats
+                try:
+                    sentence["start_time"] = float(sentence["start_time"])
+                    sentence["end_time"] = float(sentence["end_time"])
+                except (ValueError, TypeError):
+                    logger.warning(
+                        f"Sentence {i} has non-numeric time values ({sentence.get('start_time')}, {sentence.get('end_time')}). Skipping.")
+                    continue
+
+                valid_sentences.append(sentence)
+
+            logger.info(
+                f"Successfully parsed {len(valid_sentences)} transcript sentences")
+            return valid_sentences
+
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"Invalid JSON format in Gemini response (transcript): {e}")
+            # Log raw response on error
+            logger.debug(
+                f"Raw Gemini response (transcript parse): {gemini_response}")
+            return []
+        except Exception as e:
+            logger.error(f"Error parsing transcript: {e}", exc_info=True)
+            return []
+
+    def _parse_scene_boundaries(self, gemini_response_text: str) -> List[Tuple[float, float]]:
+        """
+        Parses scene boundaries from the Gemini API response string.
+        Expects a JSON structure, potentially with a top-level 'scene_boundaries' key.
+
+        Args:
+            gemini_response_text: The raw text response from the Gemini API.
+
+        Returns:
+            A list of tuples, where each tuple represents a scene boundary (start, end).
+        """
+        if not gemini_response_text or not gemini_response_text.strip():
+            logger.warning(
+                "Received empty Gemini response for scene boundaries.")
+            return []
+        try:
+            # Clean potential markdown fences
+            cleaned_text = gemini_response_text.strip()
+            if cleaned_text.startswith("```json"):
+                cleaned_text = cleaned_text[7:-3].strip()
+            elif cleaned_text.startswith("```"):
+                cleaned_text = cleaned_text[3:-3].strip()
+
+            if not cleaned_text:
+                logger.warning(
+                    "Gemini response for boundaries became empty after cleaning.")
+                return []
+
+            data = json.loads(cleaned_text)
+
+            boundaries_list = []
+            # Check if boundaries are directly a list or nested under a key
+            if isinstance(data, dict) and "scene_boundaries" in data and isinstance(data["scene_boundaries"], list):
+                boundaries_list = data["scene_boundaries"]
+            elif isinstance(data, list):
+                # If the top level is a list, assume it's the boundaries list directly
+                # This might need adjustment if Gemini returns events differently
+                boundaries_list = data
+                logger.debug(
+                    "Parsed scene boundaries directly from top-level list.")
+            else:
+                logger.warning(
+                    f"Unexpected JSON structure for scene boundaries: {type(data).__name__}. Looking for list or dict with 'scene_boundaries' key.")
+                return []
+
+            # Validate items in the list
+            valid_boundaries = []
+            for item in boundaries_list:
+                start, end = None, None
+                if isinstance(item, dict) and all(k in item for k in ["start_time", "end_time"]):
+                    start, end = item.get(
+                        "start_time"), item.get("end_time")
+                elif isinstance(item, (list, tuple)) and len(item) == 2:
+                    start, end = item[0], item[1]
+
+                if start is not None and end is not None:
+                    try:
+                        start_f = float(start)
+                        end_f = float(end)
+                        if end_f > start_f:  # Ensure valid range
+                            valid_boundaries.append((start_f, end_f))
+                        else:
+                            logger.warning(
+                                f"Skipping scene boundary with invalid time range: start={start_f}, end={end_f}")
+                    except (ValueError, TypeError):
+                        logger.warning(
+                            f"Skipping scene boundary with non-numeric time format: {item}")
                 else:
-                    logger.error("Transcription response missing 'results.utterances'.")
-                    transcript = None # Indicate failure
-            except Exception as e:
-                 logger.error(f"Deepgram transcription failed: {e}", exc_info=True)
-                 transcript = None # Indicate failure
-        else:
-            # Placeholder for other APIs if needed
-            raise ValueError(f"Transcription API '{api}' is not currently supported.")
+                    logger.warning(
+                        f"Skipping invalid scene boundary item structure: {item}")
 
-    # Checkpoint after transcription attempt
-    if transcript is not None:
-        save_checkpoint(
-            project_path, CHECKPOINTS["TRANSCRIPTION_COMPLETE"], {"transcript_path": transcript_path}
-        )
-        logger.info("Transcription checkpoint saved.")
-    else:
-        logger.error("Transcription failed or produced no utterances.")
-        # Return None for transcript, main function should handle this
+            logger.info(
+                f"Successfully parsed {len(valid_boundaries)} scene boundaries.")
+            # Sort boundaries by start time
+            valid_boundaries.sort(key=lambda x: x[0])
+            return valid_boundaries
 
-    # --- Scene Detection ---
-    scene_boundaries = None
-    scenes_csv_path = os.path.join(project_path, "scenes", "scenes.csv") # Standard path for CSV
-    if os.path.exists(scenes_csv_path):
-        logger.info("Loading existing scene boundaries from CSV...")
-        try:
-             scene_boundaries = []
-             with open(scenes_csv_path, 'r', encoding='utf-8') as f:
-                 reader = csv.reader(f)
-                 header = next(reader) # Skip header
-                 for row in reader:
-                     try:
-                         start_sec = float(row[3])
-                         end_sec = float(row[4])
-                         scene_boundaries.append((start_sec, end_sec))
-                     except (IndexError, ValueError) as row_err:
-                         logger.warning(f"Skipping invalid row in scenes.csv: {row} - {row_err}")
-             logger.info(f"Loaded {len(scene_boundaries)} scenes from CSV.")
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"Invalid JSON format in Gemini response for scene boundaries: {e}")
+            logger.debug(
+                f"Raw Gemini response (boundaries parse): {gemini_response_text}")
+            return []
         except Exception as e:
-             logger.warning(f"Failed to load scenes from CSV ({scenes_csv_path}): {e}. Will re-detect.")
-             scene_boundaries = None # Ensure re-detection
+            logger.error(
+                f"Error parsing scene boundaries: {e}", exc_info=True)
+            return []
 
-    if scene_boundaries is None:
-        logger.info("Detecting scenes in video...")
-        scenes_output_dir = os.path.join(project_path, "scenes") # Dir for CSV and maybe frames later
-        os.makedirs(scenes_output_dir, exist_ok=True) # Ensure dir exists
+    def _save_segment_analysis_to_json(self, segment_path: str, analysis_results: dict) -> None:
+        """
+        Saves segment analysis results to a JSON file next to the segment file.
+        
+        Args:
+            segment_path: Path to the video segment file.
+            analysis_results: Dictionary containing the analysis results.
+        """
         try:
-            scene_boundaries = detect_scenes(
-                video_path=video_path,
-                output_dir=scenes_output_dir,
-                threshold=scene_threshold,
-                min_scene_len_sec=min_scene_len_sec,
-                save_csv=True # Ensure CSV is saved
-            )
+            # Generate the JSON filename based on the segment filename
+            segment_dir = os.path.dirname(segment_path)
+            segment_basename = os.path.basename(segment_path)
+            segment_name = os.path.splitext(segment_basename)[0]  # Remove extension
+            json_filename = f"{segment_name}_analysis.json"
+            json_path = os.path.join(segment_dir, json_filename)
+            
+            # Ensure the directory exists
+            os.makedirs(segment_dir, exist_ok=True)
+            
+            # Add timestamp to the analysis results
+            analysis_with_metadata = analysis_results.copy()
+            analysis_with_metadata["segment_path"] = segment_path
+            analysis_with_metadata["analysis_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Write the analysis results to the JSON file
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(analysis_with_metadata, f, indent=4, ensure_ascii=False)
+                
+            logger.info(f"Saved segment analysis to {json_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save segment analysis to JSON: {e}", exc_info=True)
+    
+    def _parse_gemini_analysis(self, gemini_response_text: str) -> dict:
+        """
+        Parses the analysis results (summary, topics) from the Gemini API response string.
+        Expects a JSON object with 'summary' and 'topics' keys.
 
-            if scene_boundaries and len(scene_boundaries) > 0:
-                logger.info(f"Scene detection complete. Found {len(scene_boundaries)} scenes.")
-                save_checkpoint(
-                    project_path, CHECKPOINTS["SCENES_DETECTED"], {"scene_boundaries": scene_boundaries}
-                )
-                logger.info("Scene detection checkpoint saved.")
+        Args:
+            gemini_response_text: The raw text response from the Gemini API.
+
+        Returns:
+            A dictionary containing the parsed analysis results.
+        """
+        if not gemini_response_text or not gemini_response_text.strip():
+            logger.warning(
+                "Received empty Gemini response for segment analysis.")
+            return {"summary": "No analysis available", "topics": []}
+
+        try:
+            # Clean potential markdown fences
+            cleaned_text = gemini_response_text.strip()
+            if cleaned_text.startswith("```json"):
+                cleaned_text = cleaned_text[7:-3].strip()
+            elif cleaned_text.startswith("```"):
+                cleaned_text = cleaned_text[3:-3].strip()
+
+            if not cleaned_text:
+                logger.warning(
+                    "Gemini response for analysis became empty after cleaning.")
+                return {"summary": "No analysis available (empty after cleaning)", "topics": []}
+
+            data = json.loads(cleaned_text)
+
+            if not isinstance(data, dict):
+                logger.error(
+                    f"Expected JSON object for analysis, got {type(data).__name__}")
+                return {"summary": "Invalid API response format", "topics": []}
+
+            # Use .get() for safety and provide defaults
+            summary = data.get("summary", "No summary provided.")
+            topics = data.get("topics", [])
+
+            # Ensure topics is a list of strings
+            if not isinstance(topics, list):
+                logger.warning(
+                    f"Expected 'topics' to be a list, got {type(topics).__name__}. Converting.")
+                topics = [str(topics)]  # Attempt conversion
             else:
-                logger.warning("No scenes were detected in the video.")
-                save_checkpoint(project_path, NO_SCENES_DETECTED, {"message": "No scenes detected in video"})
-                scene_boundaries = [] # Use empty list for consistency
+                # Ensure all items are strings
+                topics = [str(t) for t in topics]
+
+            analysis = {
+                "summary": summary,
+                "topics": topics
+            }
+            return analysis
+
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"Invalid JSON format in Gemini analysis response: {e}")
+            logger.info(
+                f"Raw Gemini response (analysis parse): {gemini_response_text}")
+            return {"summary": "Invalid API response", "topics": [], "error": f"JSONDecodeError: {e}"}
         except Exception as e:
-            logger.error(f"Scene detection failed: {e}", exc_info=True)
-            scene_boundaries = None # Indicate failure
+            logger.error(f"Error parsing Gemini analysis: {e}", exc_info=True)
+            return {"summary": "Analysis parsing failed", "topics": [], "error": str(e)}
 
-    # Return results
-    return transcript, scene_boundaries
+    # --- Segmentation and Analysis Methods ---
 
+    def _detect_silent_periods(self, scene_transcript: List[dict]) -> List[Tuple[float, float]]:
+        """
+        Detects silent periods within the scene's transcript, using a basic adaptive threshold.
 
-# --- Main Processing Function (Refactored) ---
-def process_video(
-    input_path: str, # Can be local path or YouTube URL
-    project_path: str,
-    api: str = "deepgram",
-    skip_unsilence: bool = False,
-    # Scene Detection Params
-    scene_threshold: float = 27.0,
-    min_scene_len: float = 1.0,
-    # Visual Analysis Params passed down from CLI
-    software_list: Optional[list] = None,
-    ocr_lang: str = "eng",
-    frames_per_scene: int = 1,
-    frame_format: str = "jpg",
-    compression_quality: int = 90,
-    register: str = "it-workflow", # Default register
-    visual_similarity_threshold: float = 0.6, # Default for VisualTopicAnalyzer
-) -> Dict:
-    # Initialize transcript_path at the beginning of the function
-    transcript_path = os.path.join(project_path, "transcript.json")
-    """
-    Main unified pipeline function to process a video: download (optional),
-    process audio, transcribe, detect scenes, perform visual analysis,
-    run visual topic modeling, and split video based on multimodal segments.
+        Args:
+            scene_transcript: The transcript of the scene.
 
-    Args:
-        input_path (str): Path to the local video file or YouTube URL.
-        project_path (str): Path to the project directory.
-        api (str, optional): Transcription API ('deepgram'). Defaults to "deepgram".
-        skip_unsilence (bool, optional): Skip silence removal. Defaults to False.
-        scene_threshold (float, optional): Threshold for scene detection. Defaults to 27.0.
-        min_scene_len (float, optional): Min scene length (sec). Defaults to 1.0.
-        software_list (list | None, optional): List of software names for OCR. Defaults to None.
-        ocr_lang (str, optional): Language for OCR. Defaults to "eng".
-        frames_per_scene (int, optional): Frames to extract/analyze per scene. Defaults to 1.
-        frame_format (str, optional): Format for extracted frames. Defaults to "jpg".
-        compression_quality (int, optional): JPEG quality. Defaults to 90.
-        register (str, optional): Analysis register for context. Defaults to "it-workflow".
-        visual_similarity_threshold (float, optional): Threshold for visual similarity detection. Defaults to 0.6.
+        Returns:
+            A list of tuples, where each tuple represents a silent period (start, end).
+        """
+        silent_periods: List[Tuple[float, float]] = []
 
-    Returns:
-        dict: Final results including transcript, visual topic analysis, and split video paths.
+        if not scene_transcript or len(scene_transcript) < 2:
+            logger.debug(
+                "Not enough transcript items to detect silent periods.")
+            return silent_periods
 
-    Raises:
-        RuntimeError, ValueError, FileNotFoundError, Exception: Propagated from sub-functions.
-    """
-    os.makedirs(project_path, exist_ok=True)
-    logger.info(f"Starting unified processing pipeline for input: {input_path}")
-    logger.info(f"Project directory: {project_path}")
-
-    checkpoint = load_checkpoint(project_path)
-    current_stage = checkpoint["stage"] if checkpoint else -1
-    logger.info(f"Current checkpoint stage: {current_stage} (Using updated sequence)")
-
-    is_youtube = is_youtube_url(input_path)
-    video_path = input_path # May be updated after download
-
-    # --- Stage 1: YouTube Download (if applicable) ---
-    youtube_complete_stage = CHECKPOINTS["YOUTUBE_DOWNLOAD_COMPLETE"]
-    if is_youtube and current_stage < youtube_complete_stage:
-        logger.info("Downloading YouTube video...")
-        download_path = os.path.join(project_path, "source_video.mp4") # Standard name
-        result = download_video(input_path, download_path, project_path)
-        if result["status"] == "error":
-            raise RuntimeError(f"YouTube download failed: {result['message']}")
-        video_path = result["file_path"] # Use the actual downloaded path
-        save_checkpoint(project_path, youtube_complete_stage, {"video_path": video_path})
-        logger.info(f"YouTube video downloaded to: {video_path}")
-        current_stage = youtube_complete_stage
-    elif is_youtube:
-        # Ensure video_path is loaded from checkpoint if download was done previously
-        if checkpoint and "video_path" in checkpoint["data"]:
-             video_path = checkpoint["data"]["video_path"]
-             logger.info(f"Using previously downloaded YouTube video: {video_path}")
-        else:
-             # Handle missing checkpoint data case
-             raise RuntimeError("YouTube download checkpoint missing video path. Please clear checkpoint or re-run.")
-    elif not os.path.exists(video_path):
-         # If it's not YouTube and doesn't exist locally
-         raise FileNotFoundError(f"Input video file not found: {video_path}")
-    logger.info(f"Using video source: {video_path}")
-
-
-    # --- Stage 2: Audio Processing ---
-    audio_processed_stage = CHECKPOINTS["AUDIO_PROCESSED"]
-    processed_video_path = None
-    processed_audio_path = None
-    if current_stage < audio_processed_stage:
-        logger.info("Starting audio processing...")
-        processed_video_path, processed_audio_path = handle_audio_video(
-            video_path, project_path, skip_unsilence
-        )
-        # Checkpoint is saved within handle_audio_video on success
-        current_stage = audio_processed_stage
-    else:
-        # Load paths from checkpoint data
-        if checkpoint and "processed_video_path" in checkpoint["data"] and "processed_audio_path" in checkpoint["data"]:
-             processed_video_path = checkpoint["data"]["processed_video_path"]
-             processed_audio_path = checkpoint["data"]["processed_audio_path"]
-             logger.info("Audio processing already completed. Using cached paths.")
-        else:
-             # Handle missing checkpoint data
-             raise RuntimeError("Audio processing checkpoint missing necessary paths. Please clear checkpoint or re-run.")
-
-    # Ensure paths are valid after loading or processing
-    if not processed_video_path or not os.path.exists(processed_video_path):
-         raise FileNotFoundError(f"Processed video path not found or invalid after audio stage: {processed_video_path}")
-    if not processed_audio_path or not os.path.exists(processed_audio_path):
-         raise FileNotFoundError(f"Processed audio path not found or invalid after audio stage: {processed_audio_path}")
-
-
-    # --- Stage 3 & 4: Transcription & Scene Detection ---
-    transcription_complete_stage = CHECKPOINTS["TRANSCRIPTION_COMPLETE"]
-    scenes_detected_stage = CHECKPOINTS["SCENES_DETECTED"] # Includes NO_SCENES_DETECTED state
-    transcript = None
-    scene_boundaries = None
-
-    # We need both transcript and scenes to proceed to visual analysis stages
-    # Check if both stages are complete based on the latest checkpoint
-    if current_stage >= scenes_detected_stage or current_stage == NO_SCENES_DETECTED:
-        logger.info("Attempting to load transcript and scene boundaries from previous stages...")
-        # Load transcript (transcript_path already defined at function start)
-        if os.path.exists(transcript_path):
-             try:
-                 transcript = load_transcript(transcript_path)
-             except Exception as e:
-                 logger.warning(f"Failed to load transcript from file ({transcript_path}): {e}. Will attempt re-run.")
-                 current_stage = audio_processed_stage # Force re-run
-        else:
-            logger.warning("Transcription checkpoint likely passed, but transcript file missing. Re-running.")
-            current_stage = audio_processed_stage # Force re-run
-
-        # Load scene boundaries (handle NO_SCENES state)
-        if current_stage >= scenes_detected_stage: # Check again after potential reset
-            scene_boundaries = checkpoint["data"].get("scene_boundaries")
-        elif current_stage == NO_SCENES_DETECTED:
-             scene_boundaries = [] # Empty list signifies no scenes
-        else:
-             # This case shouldn't be reached if current_stage was reset correctly
-             logger.warning("Scene detection state inconsistent. Re-running detection.")
-             current_stage = audio_processed_stage
-
-        # Final check if loaded data is valid
-        if transcript is None or scene_boundaries is None:
-             logger.warning("Failed to load necessary transcript/scene data. Re-running detection/transcription.")
-             current_stage = audio_processed_stage # Ensure re-run
-
-    # Run transcription and scene detection if not loaded successfully
-    if current_stage < scenes_detected_stage and current_stage != NO_SCENES_DETECTED:
-        logger.info("Starting transcription and scene detection...")
-        transcript, scene_boundaries = handle_transcription_and_scene_detection(
-            audio_path=processed_audio_path,
-            video_path=processed_video_path, # Use processed video for scene detection
-            project_path=project_path,
-            api=api,
-            scene_threshold=scene_threshold,
-            min_scene_len_sec=min_scene_len,
-        )
-        # Checkpoints are saved within handle_transcription_and_scene_detection
-        if transcript is not None and scene_boundaries is not None:
-             # Update stage based on whether scenes were found
-             last_checkpoint = load_checkpoint(project_path) # Reload to get latest stage
-             current_stage = last_checkpoint["stage"] if last_checkpoint else current_stage
-        else:
-             logger.error("Failed to get transcript or detect scenes. Cannot proceed.")
-             return {
-                 "error": "Transcription or Scene Detection failed.",
-                 "transcript": transcript, # Return partial results
-                 "scene_boundaries": scene_boundaries
-             }
-
-    # --- Stage 5: Scene Visual Analysis ---
-    visual_analysis_complete_stage = CHECKPOINTS["VISUAL_ANALYSIS_COMPLETE"]
-    analyzed_scenes_results = None
-    scene_analysis_results_path = os.path.join(project_path, "scene_analysis", "scene_analysis_results.json") # Define path
-
-    if current_stage < visual_analysis_complete_stage:
-        logger.info("Starting scene visual analysis...")
-        if not scene_boundaries:
-            logger.info("Skipping visual analysis as no scenes were detected.")
-            analyzed_scenes_results = [] # Need empty list for consistency
-            # Save checkpoint indicating skipped analysis? Or rely on next stage check?
-            save_checkpoint(
-                 project_path, visual_analysis_complete_stage, {"analyzed_scenes_results_path": None, "skipped": True}
-            )
-            current_stage = visual_analysis_complete_stage
-        else:
+        time_gaps: List[float] = []
+        for i in range(1, len(scene_transcript)):
             try:
-                # Initialize Gemini Client (ensure API key is available via env var)
-                gemini_client = GeminiClient() # Assumes API key is in env
-                analyzed_scenes_results = analyze_scenes(
-                    input_video=processed_video_path, # Use the processed video
-                    scene_boundaries=scene_boundaries,
-                    project_path=project_path,
-                    gemini_client=gemini_client,
-                    software_list=software_list,
-                    ocr_lang=ocr_lang,
-                    frames_per_scene=frames_per_scene,
-                    frame_format=frame_format,
-                    compression_quality=compression_quality,
-                    register=register, # Pass register
-                    visual_similarity_threshold=visual_similarity_threshold # Pass threshold
-                )
-                # analyze_scenes saves its own results and checkpoint internally now
-                # Reload checkpoint to confirm stage update
-                last_checkpoint = load_checkpoint(project_path)
-                current_stage = last_checkpoint["stage"] if last_checkpoint and last_checkpoint["stage"] == visual_analysis_complete_stage else current_stage
+                start_time = float(scene_transcript[i].get("start_time", 0.0))
+                prev_end_time = float(
+                    scene_transcript[i - 1].get("end_time", 0.0))
+                gap = start_time - prev_end_time
+                if gap > 0.1:  # Only consider gaps greater than 100ms as potential silence
+                    time_gaps.append(gap)
+            except (ValueError, TypeError):
+                logger.warning(
+                    f"Invalid time format encountered while calculating gaps between transcript items {i-1} and {i}.")
+                continue
 
+        if not time_gaps:
+            logger.debug(
+                "No significant positive time gaps found between transcript items.")
+            return silent_periods
+
+        # Calculate adaptive threshold (e.g., mean + std dev, or just mean)
+        avg_gap = sum(time_gaps) / len(time_gaps)
+        # e.g., 120% of average, but at least 1 second
+        SILENCE_THRESHOLD = max(avg_gap * 1.2, 1.0)
+
+        logger.debug(
+            f"Calculated silence threshold: {SILENCE_THRESHOLD:.2f}s (based on {len(time_gaps)} gaps, avg={avg_gap:.2f}s)")
+
+        for i in range(1, len(scene_transcript)):
+            try:
+                prev_item = scene_transcript[i - 1]
+                curr_item = scene_transcript[i]
+                prev_end_time = float(prev_item.get("end_time", 0.0))
+                curr_start_time = float(curr_item.get("start_time", 0.0))
+                time_gap = curr_start_time - prev_end_time
+
+                if time_gap > SILENCE_THRESHOLD:
+                    silent_periods.append((prev_end_time, curr_start_time))
+            except (ValueError, TypeError):
+                continue
+
+        logger.info(
+            f"Detected {len(silent_periods)} potential silent periods based on threshold {SILENCE_THRESHOLD:.2f}s.")
+        return silent_periods
+
+    def _align_timestamps_and_segment(
+        self,
+        video_path: str,
+        output_dir: str,
+        scene_start: Optional[float],
+        scene_end: Optional[float],
+        silent_periods: List[Tuple[float, float]],
+    ) -> List[Tuple[float, float, str]]:
+        """
+        Determines segment boundaries based on scene limits and silent periods,
+        aligns them to keyframes, and segments the video.
+
+        Args:
+            video_path: Path to the input video.
+            output_dir: Directory to save video segments.
+            scene_start: Start time of the scene (absolute video time).
+            scene_end: End time of the scene (absolute video time).
+            silent_periods: List of silent periods (start, end) (absolute video time).
+
+        Returns:
+            A list of tuples: (aligned_start, aligned_end, segment_path).
+        """
+        segment_timestamps: List[Tuple[float, float]] = []
+        segment_paths_result: List[Tuple[float, float, str]] = []
+
+        # Determine the absolute start and end points for segmentation
+        start_point = scene_start if scene_start is not None else 0.0
+        end_point = scene_end
+
+        # If scene_end is None, get video duration
+        if end_point is None:
+            logger.info(
+                "Scene end time is None. Attempting to get video duration.")
+            try:
+                with VideoFileClip(video_path) as clip:
+                    end_point = clip.duration
+                if end_point is None or end_point <= start_point:
+                    logger.error(
+                        f"Could not determine valid video duration for {video_path}. Cannot segment.")
+                    return []
+                logger.info(
+                    f"Using video duration ({end_point:.2f}s) as end point.")
             except Exception as e:
-                 logger.error(f"Scene visual analysis failed: {e}", exc_info=True)
-                 return {"error": f"Visual analysis failed: {e}"}
-    else:
-        logger.info("Visual analysis already completed.")
-        # Load results from file if stage was already complete
-        if os.path.exists(scene_analysis_results_path):
-             try:
-                 from .analysis.visual_analysis import load_analyzed_scenes # Local import ok?
-                 analyzed_scenes_results = load_analyzed_scenes(os.path.join(project_path, "scene_analysis"))
-                 if analyzed_scenes_results is None: # Handle empty list case
-                      analyzed_scenes_results = []
-             except Exception as e:
-                  logger.warning(f"Failed to load existing visual analysis results: {e}")
-                  # Consider re-running by resetting stage? For now, proceed cautiously.
-                  analyzed_scenes_results = []
+                logger.error(
+                    f"Failed to get video duration using moviepy: {e}")
+                return []
+
+        # Create initial segment boundaries based on silence
+        current_segment_start = start_point
+        if not silent_periods:
+            if end_point > start_point:
+                segment_timestamps.append((start_point, end_point))
+            logger.info(
+                "No silent periods detected, creating one segment for the range.")
         else:
-             # If checkpoint says complete but file missing, log warning
-             logger.warning(f"Visual analysis checkpoint complete, but results file missing: {scene_analysis_results_path}")
-             # If no scenes were detected previously, ensure results list is empty
-             if load_checkpoint(project_path).get("stage") == NO_SCENES_DETECTED:
-                  analyzed_scenes_results = []
-             else:
-                 # This indicates a problem, maybe reset stage and force re-run?
-                 logger.error("Inconsistent state: Visual analysis checkpoint passed but results missing.")
-                 return {"error": "Inconsistent state: Missing visual analysis results."}
+            silent_periods.sort(key=lambda x: x[0])
+            for silence_start, silence_end in silent_periods:
+                silence_start = max(silence_start, start_point)
+                silence_end = min(silence_end, end_point)
+                if silence_start > current_segment_start:
+                    segment_timestamps.append(
+                        (current_segment_start, silence_start))
+                current_segment_start = max(silence_end, current_segment_start)
+            if current_segment_start < end_point:
+                segment_timestamps.append((current_segment_start, end_point))
+            logger.info(
+                f"Generated {len(segment_timestamps)} potential segment timestamps based on silence.")
 
+        # Filter out very short segments
+        MIN_SEGMENT_DURATION = 1.0
+        filtered_timestamps = []
+        for start, end in segment_timestamps:
+            if end - start >= MIN_SEGMENT_DURATION:
+                filtered_timestamps.append((start, end))
+            else:
+                logger.debug(
+                    f"Skipping very short segment: {start:.2f}s - {end:.2f}s")
 
-    # --- Stage 6: Visual Topic Modeling ---
-    visual_topic_modeling_complete_stage = CHECKPOINTS["VISUAL_TOPIC_MODELING_COMPLETE"]
-    visual_topic_results = None
-    visual_topic_results_path = os.path.join(project_path, "visual_topic_analysis_results.json") # Define path
+        if not filtered_timestamps:
+            logger.warning(
+                "No valid segment timestamps remained after filtering short durations.")
+            return []
+        logger.info(
+            f"{len(filtered_timestamps)} segments remained after filtering.")
 
-    if current_stage < visual_topic_modeling_complete_stage:
-        logger.info("Starting visual topic modeling...")
-        if not transcript:
-             logger.error("Transcript not available, cannot perform visual topic modeling.")
-             return {"error": "Transcript missing for visual topic modeling."}
-        if analyzed_scenes_results is None:
-             logger.error("Analyzed scenes results not available. Cannot perform visual topic modeling.")
-             return {"error": "Missing analyzed scenes results."}
+        # Align timestamps to keyframes
+        aligned_timestamps = video_segmentation.align_timestamps_to_keyframes(
+            video_path, filtered_timestamps
+        )
+        logger.info(
+            f"Aligned {len(aligned_timestamps)} timestamps to keyframes.")
 
+        # Segment the video
+        timestamp_suffix = time.strftime("%Y%m%d%H%M%S")
+        segment_name_template = f"segment_{timestamp_suffix}_$INDEX.mp4"
+        segment_paths = video_segmentation.segment_video(
+            video_path, output_dir, aligned_timestamps, output_name_template=segment_name_template
+        )
+        logger.info(
+            f"Created {len(segment_paths)} segment files in {output_dir}.")
+
+        # Create the result list
+        if len(aligned_timestamps) != len(segment_paths):
+            logger.warning(
+                f"Mismatch between aligned timestamps ({len(aligned_timestamps)}) and created segment files ({len(segment_paths)}). Results may be incomplete.")
+
+        for i, (start, end) in enumerate(aligned_timestamps):
+            if i < len(segment_paths):
+                segment_paths_result.append((start, end, segment_paths[i]))
+            else:
+                logger.error(
+                    f"Missing segment file for timestamp range: {start}-{end}")
+                segment_paths_result.append((start, end, "ERROR_PATH_MISSING"))
+
+        return segment_paths_result
+
+    def _analyze_segment(self, segment_path: str) -> dict:
+        """
+        Analyzes a video segment using the Gemini API, parses the result,
+        and saves the analysis as a JSON file next to the segment file.
+
+        Args:
+            segment_path: Path to the video segment file.
+
+        Returns:
+            A dictionary containing the analysis results (summary, topics).
+        """
+        logger.info(f"Analyzing segment: {segment_path}")
         try:
-            # Prepare visual frames input
-            visual_frames = prepare_visual_frames_for_topic_modeling(analyzed_scenes_results)
-
-            # Run the combined analysis
-            visual_topic_results = process_transcript_with_visuals(
-                transcript_sentences=transcript, # Use the loaded transcript
-                visual_frames=visual_frames,
-                project_path=project_path,
-                register=register
+            # Construct the prompt for Gemini - ask for JSON
+            prompt = (
+                "Summarize this video segment and identify the key topics discussed. "
+                "Respond ONLY with a JSON object containing 'summary' and 'topics' (list of strings) keys."
             )
-            # process_transcript_with_visuals saves its own results and checkpoint
-            last_checkpoint = load_checkpoint(project_path) # Reload checkpoint
-            current_stage = last_checkpoint["stage"] if last_checkpoint and last_checkpoint["stage"] == visual_topic_modeling_complete_stage else current_stage
+
+            # Send the video segment to the Gemini API for analysis
+            gemini_response_text = self.gemini_client.analyze(
+                prompt, segment_path)
+
+            # Parse the Gemini API response
+            analysis_results = self._parse_gemini_analysis(
+                gemini_response_text)
+            
+            # Save the analysis results to a JSON file next to the segment file
+            self._save_segment_analysis_to_json(segment_path, analysis_results)
+            
+            return analysis_results
 
         except Exception as e:
-             logger.error(f"Visual topic modeling failed: {e}", exc_info=True)
-             return {"error": f"Visual topic modeling failed: {e}"}
-    else:
-        logger.info("Visual topic modeling already completed.")
-        # Load existing results
-        if os.path.exists(visual_topic_results_path):
-             try:
-                 with open(visual_topic_results_path, 'r', encoding='utf-8') as f:
-                      visual_topic_results = json.load(f)
-             except Exception as e:
-                  logger.warning(f"Failed to load existing visual topic results: {e}")
-                  visual_topic_results = None # Ensure it's None if loading fails
-        else:
-             logger.warning(f"Visual topic modeling checkpoint complete, but results file missing: {visual_topic_results_path}")
-             visual_topic_results = None
-
-
-    # --- Stage 7: Video Splitting ---
-    video_split_complete_stage = CHECKPOINTS["VIDEO_SPLIT_COMPLETE"]
-    split_video_paths = None
-
-    if current_stage < video_split_complete_stage:
-         logger.info("Splitting video based on identified topic segments...")
-         if visual_topic_results is None:
-             logger.warning("Visual topic modeling results not available. Cannot split video.")
-             # Save checkpoint indicating skipped split?
-         else:
-              final_segments = visual_topic_results.get("segments", [])
-              if not final_segments:
-                   logger.warning("No final segments identified by visual topic modeling. Cannot split video.")
-              else:
-                   # Extract start/end times for split_video_by_scenes
-                   segment_boundaries = [(seg.get("start_time", 0.0), seg.get("end_time", 0.0)) for seg in final_segments]
-                   split_output_dir = os.path.join(project_path, "split_videos")
-                   os.makedirs(split_output_dir, exist_ok=True)
-                   try:
-                        split_video_paths = split_video_by_scenes(
-                             video_path=processed_video_path, # Use processed video
-                             scene_list=segment_boundaries, # Use boundaries from topic analysis
-                             output_dir=split_output_dir,
-                        )
-                        save_checkpoint(
-                             project_path, video_split_complete_stage, {"split_video_paths": split_video_paths}
-                        )
-                        current_stage = video_split_complete_stage
-                        logger.info(f"Video successfully split into {len(split_video_paths)} topic-based segments.")
-                   except Exception as e:
-                        logger.error(f"Failed to split video based on topic segments: {e}", exc_info=True)
-                        split_video_paths = [] # Indicate failure
-    else:
-        logger.info("Video splitting already completed.")
-        # Load split_video_paths from checkpoint data if needed
-        if checkpoint and "split_video_paths" in checkpoint["data"]:
-            split_video_paths = checkpoint["data"]["split_video_paths"]
-
-
-    # --- Stage 8: Final Results ---
-    process_complete_stage = CHECKPOINTS["PROCESS_COMPLETE"]
-    logger.info("Preparing final results...")
-
-    # Ensure key results are loaded or available
-    if visual_topic_results is None and os.path.exists(visual_topic_results_path):
-        logger.info("Reloading visual topic results for final summary...")
-        try:
-             with open(visual_topic_results_path, 'r', encoding='utf-8') as f:
-                  visual_topic_results = json.load(f)
-        except Exception:
-             logger.error("Failed to reload visual topic results for final summary.")
-
-    final_results = {
-        "project_path": project_path,
-        "original_input": input_path,
-        "processed_video_path": processed_video_path,
-        "processed_audio_path": processed_audio_path,
-        # Include the main results from the visual topic modeling stage
-        "visual_topic_analysis": visual_topic_results if visual_topic_results else {"error": "Results unavailable"},
-        "split_video_paths": split_video_paths if split_video_paths is not None else [],
-        # Add references to other intermediate files if useful
-        "transcript_path": transcript_path if transcript else None,
-        "scene_analysis_path": scene_analysis_results_path if analyzed_scenes_results is not None else None,
-    }
-    # Save final results JSON
-    final_results_path = os.path.join(project_path, "final_results.json")
-    logger.info(f"Saving final results to: {final_results_path}")
-    try:
-        with open(final_results_path, "w", encoding="utf-8") as f:
-            # Use default=str for safety with potential non-serializable types
-            json.dump(final_results, f, indent=2, ensure_ascii=False, default=str)
-    except Exception as e:
-        logger.error(f"Failed to save final results JSON: {e}")
-
-    # Final overall completion checkpoint
-    save_checkpoint(project_path, process_complete_stage, {"final_results_path": final_results_path})
-    logger.info("Unified processing pipeline complete.")
-
-    return final_results
+            logger.error(
+                f"Error analyzing segment {segment_path}: {e}", exc_info=True)
+            # Return a consistent error structure
+            error_results = {"summary": "Analysis failed", "topics": [], "error": str(e)}
+            
+            # Try to save the error results to JSON as well
+            try:
+                self._save_segment_analysis_to_json(segment_path, error_results)
+            except Exception as save_err:
+                logger.error(f"Failed to save error results to JSON: {save_err}")
+                
+            return error_results
