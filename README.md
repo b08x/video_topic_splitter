@@ -1,5 +1,7 @@
 # Video Topic Splitter: It Chops Videos. Intelligently. Sometimes
 
+[SIFT analsys](SIFT-assesment.md)
+
 This software exists. Its purpose is to accept a video file, specifically one involving screen activity like troubleshooting or tutorials, and divide it into smaller segments. These divisions are not arbitrary; they correspond to shifts in the topic, as determined by an analysis of both the spoken words (transcription) and the pixels displayed (visual analysis). The ultimate, perhaps optimistic, goal is to make the content of such videos searchable, potentially saving users from re-watching hours of footage to find a specific five-minute solution. A simple transaction: computation and API keys are provided, segmented video and analysis artifacts are returned.
 
 ## What It Does (Features, Allegedly)
