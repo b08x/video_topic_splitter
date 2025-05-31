@@ -9,6 +9,21 @@ import google.generativeai as genai
 from PIL import Image
 import tempfile
 import subprocess
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    wait_random,
+    retry_if_exception_type,
+    before_sleep_log
+)
+from google.api_core.exceptions import (
+    GoogleAPIError,
+    DeadlineExceeded,
+    ServiceUnavailable,
+    ResourceExhausted,
+    ServerError
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +33,9 @@ class GeminiClient:
     Handles text and multimodal (image/video) content with rate limiting.
     """
 
-    def __init__(self, 
-                 api_key: str, 
-                 model_name: str = "gemini-1.5-flash", 
+    def __init__(self,
+                 api_key: str,
+                 model_name: str = "gemini-2.0-flash",
                  rate_limit_requests: int = 15,
                  rate_limit_period: int = 60,
                  retry_count: int = 3,
@@ -87,6 +102,12 @@ class GeminiClient:
         self.request_timestamps.append(current_time)
         return True
 
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=1, max=60) + wait_random(min=1, max=2),
+        retry=retry_if_exception_type((GoogleAPIError, ServerError, ServiceUnavailable, ResourceExhausted, DeadlineExceeded)),
+        before_sleep=before_sleep_log(logger, logging.WARNING)
+    )
     def analyze(self, prompt: str, media_path: Optional[Union[str, Image.Image]] = None) -> str:
         """
         Analyzes text or multimodal content using the configured Gemini model.
@@ -98,64 +119,50 @@ class GeminiClient:
         Returns:
             The text response from the Gemini API
         """
-        for attempt in range(self.retry_count + 1):
-            try:
-                # Check rate limit before making the request
-                self._check_rate_limit()
-                
-                # Handle different input types
-                if media_path is None:
-                    # Text-only prompt
-                    logger.info("Sending text-only prompt to Gemini API")
-                    response = self.model.generate_content(prompt)
-                    
-                elif isinstance(media_path, Image.Image):
-                    # Direct PIL Image object
-                    logger.info("Sending image with prompt to Gemini API")
-                    response = self.model.generate_content([prompt, media_path])
-                    
-                elif isinstance(media_path, str) and os.path.exists(media_path):
-                    # File path provided
-                    file_extension = os.path.splitext(media_path)[1].lower()
-                    
-                    # Check if it's a video file
-                    video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm']
-                    if file_extension in video_extensions:
-                        logger.info(f"Processing video file: {media_path}")
-                        return self._process_video(prompt, media_path)
-                        
-                    # Handle as image file
-                    else:
-                        try:
-                            logger.info(f"Loading image from path: {media_path}")
-                            img = Image.open(media_path)
-                            response = self.model.generate_content([prompt, img])
-                        except Exception as img_err:
-                            logger.error(f"Failed to process image file: {img_err}", exc_info=True)
-                            return f"Analysis failed: Could not process image file: {str(img_err)}"
-                else:
-                    logger.error(f"Invalid media path or unsupported media type: {media_path}")
-                    return "Analysis failed: Invalid media path or unsupported media type"
-                    
-                # Process the response
-                if hasattr(response, 'text'):
-                    return response.text
-                else:
-                    # Handle different response formats
-                    logger.warning(f"Unexpected response format: {type(response)}")
-                    return str(response)
-                    
-            except Exception as e:
-                if attempt < self.retry_count:
-                    wait_time = self.retry_delay * (attempt + 1)
-                    logger.warning(f"Attempt {attempt+1} failed: {e}. Retrying in {wait_time} seconds...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"All {self.retry_count} retry attempts failed: {e}", exc_info=True)
-                    return f"Analysis failed after {self.retry_count} attempts: {str(e)}"
+        # Check rate limit before making the request
+        self._check_rate_limit()
         
-        # This should not be reached due to the return in the last exception handler
-        return "Analysis failed: Unknown error"
+        # Handle different input types
+        if media_path is None:
+            # Text-only prompt
+            logger.info("Sending text-only prompt to Gemini API")
+            response = self.model.generate_content(prompt)
+            
+        elif isinstance(media_path, Image.Image):
+            # Direct PIL Image object
+            logger.info("Sending image with prompt to Gemini API")
+            response = self.model.generate_content([prompt, media_path])
+            
+        elif isinstance(media_path, str) and os.path.exists(media_path):
+            # File path provided
+            file_extension = os.path.splitext(media_path)[1].lower()
+            
+            # Check if it's a video file
+            video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm']
+            if file_extension in video_extensions:
+                logger.info(f"Processing video file: {media_path}")
+                return self._process_video(prompt, media_path)
+                
+            # Handle as image file
+            else:
+                try:
+                    logger.info(f"Loading image from path: {media_path}")
+                    img = Image.open(media_path)
+                    response = self.model.generate_content([prompt, img])
+                except Exception as img_err:
+                    logger.error(f"Failed to process image file: {img_err}", exc_info=True)
+                    return f"Analysis failed: Could not process image file: {str(img_err)}"
+        else:
+            logger.error(f"Invalid media path or unsupported media type: {media_path}")
+            return "Analysis failed: Invalid media path or unsupported media type"
+            
+        # Process the response
+        if hasattr(response, 'text'):
+            return response.text
+        else:
+            # Handle different response formats
+            logger.warning(f"Unexpected response format: {type(response)}")
+            return str(response)
 
     def _process_video(self, prompt: str, video_path: str) -> str:
         """
@@ -232,25 +239,34 @@ class GeminiClient:
                 # Check rate limit before making the request
                 self._check_rate_limit()
                 
-                # Send to Gemini API with retry logic
-                for attempt in range(self.retry_count + 1):
-                    try:
-                        logger.info(f"Sending {len(images)} video frames with prompt to Gemini API (attempt {attempt+1})")
-                        response = self.model.generate_content(content)
-                        
-                        if hasattr(response, 'text'):
-                            return response.text
-                        else:
-                            return str(response)
-                    except Exception as e:
-                        if attempt < self.retry_count:
-                            wait_time = self.retry_delay * (attempt + 1)
-                            logger.warning(f"Video analysis attempt {attempt+1} failed: {e}. Retrying in {wait_time} seconds...")
-                            time.sleep(wait_time)
-                        else:
-                            logger.error(f"All {self.retry_count} video analysis retry attempts failed: {e}", exc_info=True)
-                            return f"Video analysis failed after {self.retry_count} attempts: {str(e)}"
+                # Send to Gemini API with tenacity retry
+                return self._process_video_frames(content, images)
                 
         except Exception as e:
             logger.error(f"Error processing video for Gemini analysis: {e}", exc_info=True)
             return f"Analysis failed: Error processing video: {str(e)}"
+            
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=1, max=60) + wait_random(min=1, max=2),
+        retry=retry_if_exception_type((GoogleAPIError, ServerError, ServiceUnavailable, ResourceExhausted, DeadlineExceeded)),
+        before_sleep=before_sleep_log(logger, logging.WARNING)
+    )
+    def _process_video_frames(self, content, images):
+        """
+        Process video frames with retry logic using tenacity.
+        
+        Args:
+            content: The content to send to the Gemini API
+            images: The list of images being processed
+            
+        Returns:
+            The text response from the Gemini API
+        """
+        logger.info(f"Sending {len(images)} video frames with prompt to Gemini API")
+        response = self.model.generate_content(content)
+        
+        if hasattr(response, 'text'):
+            return response.text
+        else:
+            return str(response)
