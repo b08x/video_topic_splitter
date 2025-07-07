@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcb-cursor0 \
     tesseract-ocr \
     tesseract-ocr-eng \
+    portaudio19-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -ms /usr/bin/bash -u 1001 -U vts
@@ -30,7 +31,8 @@ COPY --chown=vts:vts setup.py /home/vts/
 COPY --chown=vts:vts requirements.txt /home/vts/
 
 # Install dependencies as user
-RUN pip install --no-cache-dir . && \
+RUN pip install --upgrade setuptools && \
+	pip install --no-cache-dir . && \
     chown -R vts:vts /home/vts
 
 # Set entrypoint (using -m for correct module resolution)

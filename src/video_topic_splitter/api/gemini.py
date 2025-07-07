@@ -18,7 +18,7 @@ def analyze_with_gemini(prompt, image=None):
     if not os.getenv("GEMINI_API_KEY"):
         raise ValueError("GEMINI_API_KEY environment variable is not set")
 
-    model = genai.GenerativeModel("gemini-2.0-flash-exp")
+    model = genai.GenerativeModel("gemini-2.0-flash")
     if image:
         response = model.generate_content([prompt, image])
     else:
