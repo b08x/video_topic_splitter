@@ -29,6 +29,7 @@ setup(
         "pyaudio",
         "scenedetect[opencv]>=0.6.2",
         "imagehash>=4.3.1",
+        "ffmpeg-python>=0.2.0",
         "videogrep>=2.0.0",
         "ffmpeg-normalize",
         "unsilence>=0.4.2",
