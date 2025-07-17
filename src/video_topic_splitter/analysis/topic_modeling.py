@@ -21,6 +21,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from ..constants import CHECKPOINTS
 from ..project import save_checkpoint
 from ..prompt_templates import get_topic_prompt
+from ..progress_tracker import ProgressTracker, SubProgressTracker
 
 # Setup for NLTK
 nltk.download("punkt", quiet=True)
@@ -47,10 +48,11 @@ def preprocess_text(text: str) -> str:
 class TopicAnalyzer:
     """Analyzes transcript segments to identify topics and create segments."""
 
-    def __init__(self, num_topics: int, register: str = "it-workflow", debug: bool = False):
+    def __init__(self, num_topics: int, register: str = "it-workflow", debug: bool = False, progress_tracker: ProgressTracker = None):
         self.num_topics = num_topics
         self.register = register
         self.debug = debug
+        self.progress_tracker = progress_tracker
         self.vectorizer = TfidfVectorizer(preprocessor=preprocess_text)
         
         # Enable debug logging if requested
@@ -217,15 +219,32 @@ class TopicAnalyzer:
 
     async def analyze_segments(self, segments: List[Dict]) -> List[Dict]:
         """Analyze each text segment to determine its topic."""
-        tasks = [self._get_topic_from_openrouter(seg["content"]) for seg in segments]
-        topic_results = await asyncio.gather(*tasks)
-
+        # Create progress tracker for segment analysis
+        segment_descriptions = [f"Segment {i+1}: {seg['content'][:50]}..." for i, seg in enumerate(segments)]
+        sub_tracker = None
+        if self.progress_tracker:
+            sub_tracker = self.progress_tracker.create_sub_progress_tracker("Topic Modeling", segment_descriptions)
+        
+        # Process segments with progress tracking
+        topic_results = []
+        for i, seg in enumerate(segments):
+            if sub_tracker:
+                sub_tracker.update_item_progress(0.0, f"Analyzing segment {i+1}/{len(segments)}")
+            
+            result = await self._get_topic_from_openrouter(seg["content"])
+            topic_results.append(result)
+            
+            if sub_tracker:
+                sub_tracker.complete_item()
+        
+        # Update segment data with results
         for i, seg in enumerate(segments):
             result = topic_results[i]
             seg["topic"] = result.get("topic", "Uncategorized")
             seg["keywords"] = result.get("keywords", [])
             seg["relationship"] = result.get("relationship", "NEW")
             seg["confidence"] = result.get("confidence", 50)
+        
         return segments
 
     def segment_by_topic(self, analyzed_segments: List[Dict]) -> List[Dict]:
@@ -255,18 +274,26 @@ class TopicAnalyzer:
 
 
 def process_transcript(
-    transcript: List[Dict], project_path: str, num_topics: int, register: str, debug: bool = False
+    transcript: List[Dict], project_path: str, num_topics: int, register: str, debug: bool = False, progress_tracker: ProgressTracker = None
 ) -> Dict:
     """
     Processes a transcript to model topics and create topic-based segments.
     """
-    print("Starting topic modeling and segmentation...")
-    analyzer = TopicAnalyzer(num_topics, register, debug)
+    if progress_tracker:
+        progress_tracker.update_phase_progress(0.0, "Initializing topic analyzer...")
+    else:
+        print("Starting topic modeling and segmentation...")
+    
+    analyzer = TopicAnalyzer(num_topics, register, debug, progress_tracker)
 
     # Analyze segments asynchronously
+    if progress_tracker:
+        progress_tracker.update_phase_progress(10.0, "Analyzing transcript segments...")
     analyzed_segments = asyncio.run(analyzer.analyze_segments(transcript))
 
     # Group segments by topic
+    if progress_tracker:
+        progress_tracker.update_phase_progress(80.0, "Grouping segments by topic...")
     topic_segments = analyzer.segment_by_topic(analyzed_segments)
 
     # Create a summary of topics
@@ -298,5 +325,8 @@ def process_transcript(
         CHECKPOINTS["TOPIC_MODELING_COMPLETE"],
         {"results": results},
     )
-    print("Topic modeling and segmentation complete.")
+    if progress_tracker:
+        progress_tracker.update_phase_progress(100.0, "Topic modeling and segmentation complete")
+    else:
+        print("Topic modeling and segmentation complete.")
     return results

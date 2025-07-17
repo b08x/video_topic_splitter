@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from .analysis.topic_modeling import process_transcript
 from .analysis.visual_analysis import split_and_analyze_video
 from .constants import CHECKPOINTS
+from .progress_tracker import ProgressTracker, create_console_progress_callback
 from .processing.audio.audio import (convert_to_mono_and_resample,
                                      extract_audio, normalize_audio,
                                      remove_silence)
@@ -132,81 +133,99 @@ def process_video(
     ocr_lang="eng",
     frames_per_scene=1,
     register="it-workflow",
+    progress_json=False,
 ):
     """Main video processing pipeline."""
     from .project import load_checkpoint
+    
+    # Initialize progress tracker
+    progress_tracker = ProgressTracker(project_path, progress_json)
+    progress_tracker.add_callback(create_console_progress_callback())
+    
+    try:
+        checkpoint = load_checkpoint(project_path)
+        unsilenced_video_path = video_path
 
-    checkpoint = load_checkpoint(project_path)
-    unsilenced_video_path = video_path
+        if is_youtube_url:
+            # YouTube download logic remains the same...
+            if (
+                checkpoint is None
+                or checkpoint["stage"] < CHECKPOINTS["YOUTUBE_DOWNLOAD_COMPLETE"]
+            ):
+                print("Downloading YouTube video...")
+                download_path = os.path.join(project_path, "source_video.mp4")
+                result = download_video(video_path, download_path, project_path)
+                if result["status"] == "error":
+                    raise RuntimeError(f"YouTube download failed: {result['message']}")
+                video_path = download_path
+                save_checkpoint(
+                    project_path,
+                    CHECKPOINTS["YOUTUBE_DOWNLOAD_COMPLETE"],
+                    {"video_path": video_path, "thumbnail_info": result.get("thumbnail_info")},
+                )
+                print(result["message"])
+            else:
+                video_path = checkpoint["data"]["video_path"]
+                print("Using previously downloaded YouTube video.")
 
-    if is_youtube_url:
-        # YouTube download logic remains the same...
-        if (
-            checkpoint is None
-            or checkpoint["stage"] < CHECKPOINTS["YOUTUBE_DOWNLOAD_COMPLETE"]
-        ):
-            print("Downloading YouTube video...")
-            download_path = os.path.join(project_path, "source_video.mp4")
-            result = download_video(video_path, download_path, project_path)
-            if result["status"] == "error":
-                raise RuntimeError(f"YouTube download failed: {result['message']}")
-            video_path = download_path
-            save_checkpoint(
+
+        mono_resampled_audio_path = None
+        if not transcript_path:
+            if checkpoint is None or checkpoint["stage"] < CHECKPOINTS["AUDIO_PROCESSED"]:
+                unsilenced_video_path, mono_resampled_audio_path = handle_audio_video(
+                    video_path, project_path, skip_unsilence
+                )
+            else:
+                unsilenced_video_path = checkpoint["data"].get("unsilenced_video_path", video_path)
+                mono_resampled_audio_path = checkpoint["data"]["mono_resampled_audio_path"]
+
+        if checkpoint is None or checkpoint["stage"] < CHECKPOINTS["PROCESS_COMPLETE"]:
+            transcript = get_or_create_transcript(
+                transcript_path, mono_resampled_audio_path, project_path, transcribe_only
+            )
+            if transcribe_only:
+                return transcript
+
+            # Topic modeling remains the same
+            topic_results = process_transcript(
+                transcript, project_path, num_topics, register=register, debug=False, progress_tracker=progress_tracker
+            )
+
+            # Visual analysis is now scene-based
+            analyzed_scenes = split_and_analyze_video(
+                unsilenced_video_path,
                 project_path,
-                CHECKPOINTS["YOUTUBE_DOWNLOAD_COMPLETE"],
-                {"video_path": video_path, "thumbnail_info": result.get("thumbnail_info")},
+                software_list,
+                ocr_lang,
+                frames_per_scene,
+                register,
+                progress_tracker,
             )
-            print(result["message"])
-        else:
-            video_path = checkpoint["data"]["video_path"]
-            print("Using previously downloaded YouTube video.")
-
-
-    mono_resampled_audio_path = None
-    if not transcript_path:
-        if checkpoint is None or checkpoint["stage"] < CHECKPOINTS["AUDIO_PROCESSED"]:
-            unsilenced_video_path, mono_resampled_audio_path = handle_audio_video(
-                video_path, project_path, skip_unsilence
-            )
-        else:
-            unsilenced_video_path = checkpoint["data"].get("unsilenced_video_path", video_path)
-            mono_resampled_audio_path = checkpoint["data"]["mono_resampled_audio_path"]
-
-    if checkpoint is None or checkpoint["stage"] < CHECKPOINTS["PROCESS_COMPLETE"]:
-        transcript = get_or_create_transcript(
-            transcript_path, mono_resampled_audio_path, project_path, transcribe_only
-        )
-        if transcribe_only:
-            return transcript
-
-        # Topic modeling remains the same
-        topic_results = process_transcript(
-            transcript, project_path, num_topics, register=register, debug=False
-        )
-
-        # Visual analysis is now scene-based
-        analyzed_scenes = split_and_analyze_video(
-            unsilenced_video_path,
-            project_path,
-            software_list,
-            ocr_lang,
-            frames_per_scene,
-            register,
-        )
         
-        # Combine results
-        results = {
-            "topics": topic_results.get("topics", []),
-            "segments": topic_results.get("segments", []),
-            "analyzed_scenes": analyzed_scenes,
-        }
+            # Combine results
+            results = {
+                "topics": topic_results.get("topics", []),
+                "segments": topic_results.get("segments", []),
+                "analyzed_scenes": analyzed_scenes,
+            }
 
-        results_path = os.path.join(project_path, "results.json")
-        with open(results_path, "w") as f:
-            json.dump(results, f, indent=2)
+            results_path = os.path.join(project_path, "results.json")
+            with open(results_path, "w") as f:
+                json.dump(results, f, indent=2)
 
-        save_checkpoint(project_path, CHECKPOINTS["PROCESS_COMPLETE"], {"results": results})
-    else:
-        results = checkpoint["data"]["results"]
+            save_checkpoint(project_path, CHECKPOINTS["PROCESS_COMPLETE"], {"results": results})
+        
+            progress_tracker.start_phase("Process Complete")
+            progress_tracker.update_phase_progress(100.0, "Processing complete")
+            progress_tracker.complete_phase("Process Complete")
+        else:
+            results = checkpoint["data"]["results"]
+            progress_tracker.start_phase("Process Complete")
+            progress_tracker.update_phase_progress(100.0, "Using cached results")
+            progress_tracker.complete_phase("Process Complete")
 
-    return results
+        return results
+    
+    except Exception as e:
+        progress_tracker.fail_phase(f"Processing failed: {str(e)}")
+        raise

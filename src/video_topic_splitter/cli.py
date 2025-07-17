@@ -101,6 +101,11 @@ def main() -> None:
         "--screenshot-context",
         help="Optional context for screenshot analysis.",
     )
+    parser.add_argument(
+        "--progress-json",
+        action="store_true",
+        help="Output progress information as JSON for programmatic consumption.",
+    )
 
     args = parser.parse_args()
     load_dotenv()
@@ -155,6 +160,7 @@ def main() -> None:
                 ocr_lang=args.ocr_lang,
                 frames_per_scene=args.frames_per_scene,
                 register=args.register,
+                progress_json=args.progress_json,
             )
 
         print(f"\nProcessing complete. Project folder: {project_path}")
