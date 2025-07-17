@@ -13,7 +13,7 @@ import progressbar
 from moviepy.editor import VideoFileClip
 from PIL import Image, UnidentifiedImageError
 
-from ...analysis.visual_analysis import LOGO_DB_PATH, detect_software_logos
+
 from ...api.gemini import analyze_with_gemini  # Corrected import path
 from ...constants import CHECKPOINTS
 from ...project import save_checkpoint

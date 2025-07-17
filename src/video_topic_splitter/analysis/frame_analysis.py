@@ -12,7 +12,7 @@ from PIL import Image
 
 from ..api.gemini import analyze_with_gemini
 from ..processing.ocr.ocr_detection import detect_software_names
-from ..processing.software.software_detection import detect_software_logos
+
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +26,7 @@ class ContextualFrameAnalyzer:
         transcript_segments: List[Dict],
         project_path: str,
         software_list: Optional[List[str]] = None,
-        logo_db_path: Optional[str] = None,
         ocr_lang: str = "eng",
-        logo_threshold: float = 0.8,
         quality_threshold: float = 0.5,
         save_format: str = "jpg",
         compression_quality: int = 85,
@@ -40,9 +38,7 @@ class ContextualFrameAnalyzer:
             transcript_segments: List of transcript segments with timestamps
             project_path: Path to project directory for saving screenshots
             software_list: Optional list of software names to detect
-            logo_db_path: Optional path to logo database directory
             ocr_lang: Language for OCR detection
-            logo_threshold: Confidence threshold for logo detection
             quality_threshold: Threshold for frame quality assessment (0-1)
             save_format: Format to save screenshots (jpg/png)
             compression_quality: JPEG compression quality (1-100)
@@ -52,11 +48,8 @@ class ContextualFrameAnalyzer:
         self.project_path = project_path
         self.screenshots_dir = os.path.join(project_path, "screenshots")
         self.software_list = software_list
-        self.logo_db_path = logo_db_path
         self.ocr_lang = ocr_lang
-        self.logo_threshold = logo_threshold
         self.quality_threshold = quality_threshold
-        self.save_format = save_format
         self.compression_quality = compression_quality
         self.frame_cache = {}  # Cache analyzed frames to avoid reprocessing
 
@@ -287,10 +280,7 @@ class ContextualFrameAnalyzer:
         software_analysis = {
             "ocr_matches": detect_software_names(
                 frame, self.software_list, self.ocr_lang
-            ),
-            "logo_matches": detect_software_logos(
-                frame, self.software_list, self.logo_db_path, self.logo_threshold
-            ),
+            )
         }
 
         # Build context for Gemini analysis
@@ -350,12 +340,6 @@ class ContextualFrameAnalyzer:
                     for m in software_analysis["ocr_matches"]
                 ]
                 context_parts.append(f"Text detected: {', '.join(matches)}")
-            if software_analysis["logo_matches"]:
-                matches = [
-                    f"{m['software']} (confidence: {m['confidence']:.2f})"
-                    for m in software_analysis["logo_matches"]
-                ]
-                context_parts.append(f"Logos detected: {', '.join(matches)}")
 
         # Add previous analysis context if available
         if previous_analysis:
@@ -380,8 +364,6 @@ class ContextualFrameAnalyzer:
         for analysis in frame_analyses:
             if "software_analysis" in analysis:
                 for match in analysis["software_analysis"].get("ocr_matches", []):
-                    software_mentions.append(match["software"])
-                for match in analysis["software_analysis"].get("logo_matches", []):
                     software_mentions.append(match["software"])
 
         # Get unique software mentions with counts

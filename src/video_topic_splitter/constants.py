@@ -17,4 +17,4 @@ CHECKPOINTS = {
     "PROCESS_COMPLETE": 11,
 }
 
-LOGO_DB_PATH = "video_topic_splitter/data/logos"  # Path relative to the project root in final package
+

@@ -31,10 +31,13 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
     video_name, video_ext = os.path.splitext(os.path.basename(video_path))
 
     # Define paths using original file extension
-    normalized_video_path = os.path.join(project_path, f"normalized_video{video_ext}")
-    unsilenced_video_path = os.path.join(project_path, f"unsilenced_video{video_ext}")
+    normalized_video_path = os.path.join(
+        project_path, f"normalized_video{video_ext}")
+    unsilenced_video_path = os.path.join(
+        project_path, f"unsilenced_video{video_ext}")
     raw_audio_path = os.path.join(audio_dir, "extracted_audio.opus")
-    mono_resampled_audio_path = os.path.join(audio_dir, "mono_resampled_audio.m4a")
+    mono_resampled_audio_path = os.path.join(
+        audio_dir, "mono_resampled_audio.m4a")
 
     # Check for existing processed files
     if os.path.exists(unsilenced_video_path) and os.path.exists(
@@ -48,7 +51,8 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
         print("Normalizing audio...")
         normalize_result = normalize_audio(video_path, normalized_video_path)
         if normalize_result["status"] == "error":
-            print(f"Error during audio normalization: {normalize_result['message']}")
+            print(
+                f"Error during audio normalization: {normalize_result['message']}")
             raise RuntimeError("Audio normalization failed")
         else:
             print(normalize_result["message"])
@@ -91,7 +95,8 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
             raw_audio_path, mono_resampled_audio_path
         )
         if conversion_result["status"] == "error":
-            print(f"Error during audio conversion: {conversion_result['message']}")
+            print(
+                f"Error during audio conversion: {conversion_result['message']}")
             raise RuntimeError("Audio conversion failed")
         else:
             print(conversion_result["message"])
@@ -123,9 +128,7 @@ def handle_transcription(
     num_topics=2,
     groq_prompt=None,
     software_list=None,
-    logo_db_path=None,
     ocr_lang="eng",
-    logo_threshold=0.8,
     thumbnail_interval=5,
     max_thumbnails=5,
     min_thumbnail_confidence=0.7,
@@ -148,11 +151,12 @@ def handle_transcription(
 
     if not transcript:
         print("No transcript found. Transcribing audio...")
-        deepgram_key = os.getenv("DG_API_KEY")
+        deepgram_key = os.getenv("DEEPGRAM_API_KEY")
         groq_key = os.getenv("GROQ_API_KEY")
 
         if not deepgram_key:
-            raise ValueError("DG_API_KEY environment variable is not set")
+            raise ValueError(
+                "DEEPGRAM_API_KEY environment variable is not set")
         if not groq_key and api == "groq":
             raise ValueError("GROQ_API_KEY environment variable is not set")
 
@@ -191,7 +195,8 @@ def handle_transcription(
         save_transcript(transcript, project_path)
 
     save_checkpoint(
-        project_path, CHECKPOINTS["TRANSCRIPTION_COMPLETE"], {"transcript": transcript}
+        project_path, CHECKPOINTS["TRANSCRIPTION_COMPLETE"], {
+            "transcript": transcript}
     )
 
     # Process transcript for topic modeling
@@ -206,9 +211,7 @@ def handle_transcription(
             results["segments"],
             segments_dir,
             software_list,
-            logo_db_path,
             ocr_lang,
-            logo_threshold,
             thumbnail_interval,
             max_thumbnails,
             min_thumbnail_confidence,
@@ -231,9 +234,11 @@ def handle_transcription(
         print(f"Error during video analysis: {str(e)}")
         # Load any segments that were successfully analyzed
         try:
-            analyzed_segments = split_and_analyze_video(video_path, [], segments_dir)
+            analyzed_segments = split_and_analyze_video(
+                video_path, [], segments_dir)
             results["analyzed_segments"] = analyzed_segments
-            print(f"Recovered {len(analyzed_segments)} previously analyzed segments")
+            print(
+                f"Recovered {len(analyzed_segments)} previously analyzed segments")
         except Exception as load_error:
             print(f"Could not load analyzed segments: {str(load_error)}")
             results["analyzed_segments"] = []
@@ -243,7 +248,8 @@ def handle_transcription(
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
 
-    save_checkpoint(project_path, CHECKPOINTS["VIDEO_ANALYZED"], {"results": results})
+    save_checkpoint(project_path, CHECKPOINTS["VIDEO_ANALYZED"], {
+                    "results": results})
 
     return results
 
@@ -258,9 +264,7 @@ def process_video(
     transcribe_only=False,
     is_youtube_url=False,
     software_list=None,
-    logo_db_path=None,
     ocr_lang="eng",
-    logo_threshold=0.8,
     thumbnail_interval=5,
     max_thumbnails=5,
     min_thumbnail_confidence=0.7,
@@ -285,7 +289,8 @@ def process_video(
             result = download_video(video_path, download_path, project_path)
 
             if result["status"] == "error":
-                raise RuntimeError(f"YouTube download failed: {result['message']}")
+                raise RuntimeError(
+                    f"YouTube download failed: {result['message']}")
 
             video_path = download_path
             save_checkpoint(
@@ -322,13 +327,15 @@ def process_video(
 
             if not transcript:
                 print("No transcript found. Transcribing audio...")
-                deepgram_key = os.getenv("DG_API_KEY")
+                deepgram_key = os.getenv("DEEPGRAM_API_KEY")
                 groq_key = os.getenv("GROQ_API_KEY")
 
                 if not deepgram_key:
-                    raise ValueError("DG_API_KEY environment variable is not set")
+                    raise ValueError(
+                        "DEEPGRAM_API_KEY environment variable is not set")
                 if not groq_key and api == "groq":
-                    raise ValueError("GROQ_API_KEY environment variable is not set")
+                    raise ValueError(
+                        "GROQ_API_KEY environment variable is not set")
 
                 if api == "deepgram":
                     deepgram_client = DeepgramClient(deepgram_key)
@@ -374,9 +381,7 @@ def process_video(
                 num_topics,
                 groq_prompt,
                 software_list,
-                logo_db_path,
                 ocr_lang,
-                logo_threshold,
                 thumbnail_interval,
                 max_thumbnails,
                 min_thumbnail_confidence,

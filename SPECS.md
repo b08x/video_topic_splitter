@@ -1,266 +1,55 @@
-# Technical Specifications
+### 1. Project Initialization and Input Handling
 
-## Processing Pipeline
+* **Responsible Modules/Functions**: `cli.py:main()`, `project.py:create_project_folder()`, `utils.youtube.py:download_video()`
+* **Explanation**: The application begins via the command-line interface, which parses user arguments. It then creates a unique, timestamped project directory to store all artifacts. The input is validated to be either a local video file or a YouTube URL. If it's a YouTube URL, the video is downloaded into the project folder before any other processing occurs.
+* **Input**: Command-line arguments specifying the input video/URL and output directory.
+* **Output**: A dedicated project folder, `source_video.mp4` (if downloaded from YouTube), and an initial `checkpoint.pkl` file marking the project's creation.
 
-```mermaid
-graph TD
-    A[Input Video] --> B[Audio Processing]
-    B --> C[Transcription]
-    B --> D[Video Segmentation]
-    C --> E[Topic Modeling]
-    E --> F[Segment Analysis]
-    D --> F
-    F --> G[Final Output]
+### 2. Audio Pre-processing
 
-    subgraph "Audio Processing"
-        B1[Normalize Audio] --> B2[Convert to Mono]
-        B2 --> B3[Resample 16kHz]
-        B3 --> B4[Apply Filters]
-    end
+* **Responsible Modules/Functions**: `core.py:handle_audio_video()`, functions within `processing/audio/audio.py` (`normalize_audio`, `remove_silence`, `extract_audio`, `convert_to_mono_and_resample`).
+* **Explanation**: The audio from the source video is extracted and optimized for accurate transcription. This involves several steps: normalizing the volume, removing or speeding up silent sections, extracting the processed audio into its own file, and finally converting it to a mono-channel, 16kHz audio file as required by the transcription service.
+* **Input**: The source video file (e.g., `source_video.mp4`).
+* **Output**: An audio-processed video (`unsilenced_video.mp4`), a separate clean audio file (`mono_resampled_audio.m4a`), and an updated `checkpoint.pkl` (Stage: `AUDIO_PROCESSED`).
 
-    subgraph "AI Services"
-        C1[Deepgram/Groq] --> C2[Speech to Text]
-        F1[Gemini] --> F2[Visual Analysis]
-    end
-```
+### 3. Audio Transcription
 
-## Component Architecture
+* **Responsible Modules/Functions**: `core.py:handle_transcription()`, `api.deepgram.py:transcribe_file_deepgram()`
+* **Explanation**: The processed audio file is sent to the Deepgram API for transcription. The API returns a detailed, timestamped transcript with speaker diarization and other metadata. The application saves both the raw API response and a simplified version containing just the utterance, start time, and end time.
+* **Input**: The processed audio file (`mono_resampled_audio.m4a`).
+* **Output**: `transcription.json` (the raw, detailed API response) and `transcript.json` (a simplified list of utterances). The checkpoint is updated to `TRANSCRIPTION_COMPLETE`.
 
-```mermaid
-flowchart TB
-    subgraph Core["Core Processing"]
-        direction TB
-        main[Main Pipeline] --> checkpoint[Checkpoint System]
-        checkpoint --> processor[Process Manager]
-    end
+### 4. Topic Modeling and Segmentation
 
-    subgraph Audio["Audio Processing"]
-        direction TB
-        ffmpeg[FFmpeg] --> normalize[Audio Normalization]
-        normalize --> silence[Silence Detection]
-        silence --> convert[Format Conversion]
-    end
+* **Responsible Modules/Functions**: `analysis.topic_modeling.py:process_transcript()`, `TopicAnalyzer` class.
+* **Explanation**: The `TopicAnalyzer` processes the `transcript.json`. It intelligently batches sentences and sends them to a generative AI model (via OpenRouter) with a specialized prompt. The AI analyzes the text to identify the main topic, associated keywords, and the relationship to the previous text block (e.g., `NEW`, `SHIFT`, `CONTINUATION`). Based on the AI's response, the transcript is segmented into distinct thematic chunks.
+* **Input**: `transcript.json`.
+* **Output**: An initial `results.json` file that contains the list of identified topics and the corresponding text segments. The checkpoint is updated to `TOPIC_MODELING_COMPLETE`.
 
-    subgraph AI["AI Services"]
-        direction TB
-        transcribe[Transcription APIs] --> topic[Topic Modeling]
-        topic --> visual[Visual Analysis]
-    end
+### 5. Contextual Frame Extraction
 
-    subgraph Storage["File Management"]
-        direction TB
-        project[Project Structure] --> cache[Cache System]
-        cache --> results[Results Storage]
-    end
+* **Responsible Modules/Functions**: `analysis.visual_analysis.py:split_and_analyze_video()`, `analysis.frame_analysis.py:ContextualFrameAnalyzer`.
+* **Explanation**: For each text segment identified in the previous step, the `ContextualFrameAnalyzer` programmatically extracts relevant video frames. It selects the best-quality frames from the start, end, and middle of the segment's duration, discarding blurry or low-contrast images. These selected frames are saved as images for individual analysis.
+* **Input**: The audio-processed video (`unsilenced_video.mp4`) and the segment data from `results.json`.
+* **Output**: Screenshot images (`.jpg` or `.png`) saved into subdirectories within the project folder (e.g., `/screenshots/segment_1/`).
 
-    Core --> Audio
-    Core --> AI
-    Core --> Storage
-```
+### 6. Detailed Visual Content Analysis
 
-## Detailed Specifications
+* **Responsible Modules/Functions**: `analysis.frame_analysis.py:analyze_frame_with_context()`, `api.gemini.py:analyze_with_gemini()`, functions in `processing/ocr/` and `processing/software/`.
+* **Explanation**: Each extracted frame undergoes a multi-layered analysis. First, Optical Character Recognition (`detect_software_names`) and template matching (`detect_software_logos`) are used to find pre-defined software names and logos. Then, the frame image—along with its context (the corresponding transcript text, topic, and any detected software)—is sent to the Gemini API for a rich, descriptive analysis of the visual content.
+* **Input**: A single frame image and its associated context (transcript text, topic).
+* **Output**: A detailed analysis for each frame, including detected software and a natural language description from Gemini.
 
-### Audio Processing Parameters
+### 7. Output Generation and Finalization
 
-#### FFmpeg Configuration
+* **Responsible Modules/Functions**: `core.py:process_video()`, `analysis.visual_analysis.py`.
+* **Explanation**: The application aggregates the results from the topic modeling (Step 4) and the detailed visual analyses (Step 6). A visual summary, including detected software and key visual elements, is generated for each segment. This final, comprehensive data structure is written to `results.json`, overwriting the preliminary version created in Step 4.
+* **Input**: All intermediate topic and visual analysis data.
+* **Output**: The final `results.json` file, containing each segment with its topic, keywords, transcript, and a detailed visual summary. The checkpoint is updated to `PROCESS_COMPLETE`.
 
-```bash
-ffmpeg -i {input} \
-    -af "highpass=f=200, \
-         acompressor=threshold=-12dB:ratio=4:attack=5:release=50" \
-    -ar 16000 \
-    -ac 1 \
-    -c:a aac \
-    -b:a 128k \
-    {output}
-```
+### 8. Checkpointing (Ongoing Process)
 
-#### Audio Normalization
-
-```bash
-ffmpeg-normalize \
-    -pr \
-    -tp -9.0 \
-    -nt rms \
-    -prf "highpass=f=100" \
-    -prf "dynaudnorm=p=0.4:s=15" \
-    -pof "lowpass=f=8000" \
-    -ar 48000 \
-    -c:a pcm_s16le \
-    --keep-loudness-range-target
-```
-
-#### Silence Detection
-
-```python
-SILENCE_PARAMS = {
-    "duration": "1.5",    # Minimum silence duration in seconds
-    "threshold": "-25"    # Silence threshold in dB
-}
-```
-
-### AI Model Configurations
-
-#### Deepgram Transcription
-
-```python
-DEEPGRAM_CONFIG = {
-    "model": "nova-2",
-    "language": "en",
-    "features": {
-        "topics": True,
-        "intents": True,
-        "smart_format": True,
-        "punctuate": True,
-        "paragraphs": True,
-        "utterances": True,
-        "diarize": True,
-        "filler_words": True,
-        "sentiment": True
-    }
-}
-```
-
-#### Groq Transcription
-
-```python
-GROQ_CONFIG = {
-    "model": "whisper-large-v3",
-    "temperature": 0.2,
-    "response_format": "verbose_json",
-    "language": "en"
-}
-```
-
-#### Topic Modeling (LDA)
-
-```python
-LDA_PARAMS = {
-    "num_topics": 5,
-    "random_state": 100,
-    "chunksize": 100,
-    "passes": 10,
-    "per_word_topics": True,
-    "minimum_probability": 0.0
-}
-```
-
-#### Gemini Visual Analysis
-
-```python
-GEMINI_CONFIG = {
-    "model": "gemini-1.5-pro-latest",
-    "analysis_prompt": """
-        Analyze this video segment. 
-        The transcript for this segment is: '{transcript}'. 
-        Describe the main subject matter, key visual elements, 
-        and how they relate to the transcript.
-    """
-}
-```
-
-## Recovery System
-
-```mermaid
-stateDiagram-v2
-    [*] --> PROJECT_CREATED: Init
-    PROJECT_CREATED --> AUDIO_PROCESSED: Process Audio
-    AUDIO_PROCESSED --> TRANSCRIPTION_COMPLETE: Transcribe
-    TRANSCRIPTION_COMPLETE --> TOPIC_MODELING_COMPLETE: Model Topics
-    TOPIC_MODELING_COMPLETE --> SEGMENTS_IDENTIFIED: Identify Segments
-    SEGMENTS_IDENTIFIED --> VIDEO_ANALYZED: Analyze Segments
-    VIDEO_ANALYZED --> PROCESS_COMPLETE: Complete
-    
-    state "Error Recovery" as error {
-        Failure --> LoadCheckpoint
-        LoadCheckpoint --> ResumeProcess
-        ResumeProcess --> ReturnToLastState
-    }
-```
-
-## File Structure
-
-```mermaid
-graph TD
-    A[Project Root] --> B[src/]
-    A --> C[tests/]
-    A --> D[docs/]
-    
-    B --> E[video_topic_splitter/]
-    E --> F[__init__.py]
-    E --> G[audio.py]
-    E --> H[transcription.py]
-    E --> I[topic_modeling.py]
-    E --> J[video_analysis.py]
-    E --> K[project.py]
-    E --> L[core.py]
-    E --> M[cli.py]
-    
-    C --> N[test_audio.py]
-    C --> O[test_transcription.py]
-    C --> P[test_topic_modeling.py]
-```
-
-## Output Format
-
-### Segment Analysis JSON Structure
-
-```json
-{
-  "segment_id": 1,
-  "start_time": 0.0,
-  "end_time": 120.5,
-  "transcript": "...",
-  "topic": {
-    "id": 2,
-    "keywords": ["..."],
-    "confidence": 0.85
-  },
-  "visual_analysis": {
-    "description": "...",
-    "key_elements": ["..."],
-    "transcript_correlation": 0.92
-  }
-}
-```
-
-## Project Organization
-
-```mermaid
-graph LR
-    A[Input] --> B{Project Manager}
-    B --> C[Audio Pipeline]
-    B --> D[Transcription Service]
-    B --> E[Topic Analysis]
-    B --> F[Visual Processing]
-    
-    C --> G{Checkpoint System}
-    D --> G
-    E --> G
-    F --> G
-    
-    G --> H[Results]
-    G --> I[Recovery]
-```
-
-## Performance Considerations
-
-### Resource Usage
-
-- Audio Processing: ~2x input duration
-- Transcription: API dependent
-- Topic Modeling: O(n*k*i) where:
-  - n = document length
-  - k = number of topics
-  - i = iteration count
-
-### Recommended Specifications
-
-- CPU: 4+ cores
-- RAM: 8GB minimum
-- Storage: 3x input video size
-- GPU: Optional, improves video processing
-
-## Attribution
-
-All technical specifications above were provided by the user. The implementation of these specifications into working code was performed by Claude (Anthropic) AI. The documentation and diagrams were also generated by Claude based on the implementation details.
+* **Responsible Modules/Functions**: `project.py:save_checkpoint()`, `project.py:load_checkpoint()`.
+* **Explanation**: After every major stage, a checkpoint is saved to a `checkpoint.pkl` file in the project directory. This file uses Python's `pickle` module to store the application's state, including the last completed stage and the file paths to any generated artifacts. If the process is interrupted, it can be resumed from the last checkpoint, preventing the need to re-run completed stages.
+* **Input**: A stage identifier (e.g., `AUDIO_PROCESSED`) and a dictionary of relevant data (like file paths).
+* **Output**: The `checkpoint.pkl` file in the project directory.

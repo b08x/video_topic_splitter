@@ -13,7 +13,6 @@ from PIL import Image, UnidentifiedImageError
 from ..api.gemini import analyze_with_gemini
 from ..constants import CHECKPOINTS
 from ..processing.ocr.ocr_detection import detect_software_names
-from ..processing.software.software_detection import detect_software_logos
 from ..processing.video.scene_detection import extract_scenes_from_video
 from ..project import save_checkpoint
 from ..prompt_templates import get_analysis_prompt
@@ -38,17 +37,14 @@ def save_analyzed_segments(segments_dir, analyzed_segments):
         json.dump(analyzed_segments, f, indent=2)
 
 
-# Configure paths
-LOGO_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "logos")
+
 
 
 def analyze_screenshot(
     image_path,
     project_path,
     software_list=None,
-    logo_db_path=None,
     ocr_lang="eng",
-    logo_threshold=0.8,
     context=None,
 ):
     """Analyze a single screenshot for software applications using OCR and logo detection."""
@@ -70,13 +66,9 @@ def analyze_screenshot(
 
         # Analyze frame for software
         ocr_matches = detect_software_names(frame, software_list, ocr_lang)
-        logo_matches = detect_software_logos(
-            frame, software_list, logo_db_path, logo_threshold
-        )
 
         analysis = {
             "ocr_matches": ocr_matches,
-            "logo_matches": logo_matches,
         }
 
         # Build software detection context
@@ -91,11 +83,6 @@ def analyze_screenshot(
                 software_context += "\nText detected: " + ", ".join(
                     f"{m['software']} ({m['detected_text']})"
                     for m in analysis["ocr_matches"]
-                )
-            if analysis["logo_matches"]:
-                software_context += "\nLogos detected: " + ", ".join(
-                    f"{m['software']} (confidence: {m['confidence']:.2f})"
-                    for m in analysis["logo_matches"]
                 )
 
         # Generate prompt for screenshot analysis
@@ -122,10 +109,11 @@ def analyze_screenshot(
             "gemini_analysis": gemini_analysis,
             "software_detections": (
                 [{"source": "screenshot", **analysis}]
-                if (analysis["ocr_matches"] or analysis["logo_matches"])
+                if (analysis["ocr_matches"])
                 else []
             ),
         }
+
 
         # Save results
         results_path = os.path.join(project_path, "results.json")
@@ -155,9 +143,7 @@ def split_and_analyze_video(
     segments,
     project_path,
     software_list=None,
-    logo_db_path=None,
     ocr_lang="eng",
-    logo_threshold=0.8,
     quality_threshold=0.5,
     save_format="jpg",
     compression_quality=85,
@@ -176,9 +162,7 @@ def split_and_analyze_video(
         segments: List of transcript segments
         project_path: Path to project directory
         software_list: Optional list of software names to detect
-        logo_db_path: Optional path to logo database directory
         ocr_lang: Language for OCR detection
-        logo_threshold: Confidence threshold for logo detection
         quality_threshold: Threshold for frame quality assessment (0-1)
         save_format: Format to save screenshots (jpg/png)
         compression_quality: JPEG compression quality (1-100)
@@ -273,13 +257,9 @@ def split_and_analyze_video(
                         ocr_matches = detect_software_names(
                             frame, software_list, ocr_lang
                         )
-                        logo_matches = detect_software_logos(
-                            frame, software_list, logo_db_path, logo_threshold
-                        )
 
                         software_analysis = {
                             "ocr_matches": ocr_matches,
-                            "logo_matches": logo_matches,
                         }
 
                         # Build context for Gemini analysis
@@ -289,11 +269,6 @@ def split_and_analyze_video(
                                 software_context += "\nText detected: " + ", ".join(
                                     f"{m['software']} ({m['detected_text']})"
                                     for m in ocr_matches
-                                )
-                            if logo_matches:
-                                software_context += "\nLogos detected: " + ", ".join(
-                                    f"{m['software']} (confidence: {m['confidence']:.2f})"
-                                    for m in logo_matches
                                 )
 
                         # Generate prompt for frame analysis
@@ -362,9 +337,7 @@ def split_and_analyze_video(
                 transcript_segments=segments,
                 project_path=project_path,
                 software_list=software_list,
-                logo_db_path=logo_db_path,
                 ocr_lang=ocr_lang,
-                logo_threshold=logo_threshold,
                 quality_threshold=quality_threshold,
                 save_format=save_format,
                 compression_quality=compression_quality,

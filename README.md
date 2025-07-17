@@ -41,7 +41,7 @@ The Video Topic Splitter is a powerful tool designed to automatically segment vi
 
 - **Speech-to-Text:**  Accurate transcription of video audio.
 - **Topic Modeling:**  Identification of distinct topics within the transcribed text.
-- **Visual Analysis:**  Extraction of visual information (text and logos) and contextual analysis of video frames.
+- **Visual Analysis:**  Extraction of visual information (text) and contextual analysis of video frames.
 - **Intelligent Segmentation:**  Division of the video into coherent segments based on identified topic changes.
 
 This makes it ideal for analyzing recordings of technical tutorials, meetings, presentations, support sessions, and more.
@@ -51,7 +51,7 @@ This makes it ideal for analyzing recordings of technical tutorials, meetings, p
 - **Automatic Video Segmentation:**  Divides videos into topic-based segments without manual intervention.
 - **Topic Modeling (OpenRouter's phi-4):**  Identifies the primary topic discussed in each segment.
 - **Transcription (Deepgram or Groq API):**  Provides high-quality transcripts of the video audio.
-- **Software Detection (OCR and Logo Recognition):**  Identifies software applications visible in the video through text extraction and logo matching.
+- **Software Detection (OCR):**  Identifies software applications visible in the video through text extraction.
 - **Gemini Analysis (Google's Gemini API):**  Offers in-depth summaries and contextual understanding of each video segment, tailored to a specific register (IT Workflow, Generative AI, or Tech Support).
 - **Robust Checkpointing:**  Saves progress and allows resuming from interruptions, ensuring no data loss.
 - **YouTube URL Support:**  Downloads and processes videos directly from YouTube links.
@@ -82,7 +82,7 @@ This makes it ideal for analyzing recordings of technical tutorials, meetings, p
 - **Topic Modeling:**  OpenRouter's `microsoft/phi-4` model for topic identification and segmentation.
 - **Audio Processing:**  `ffmpeg` and `ffmpeg-normalize` for audio extraction, conversion, normalization, and dynamic range compression; `unsilence` for optional silence removal.
 - **OCR:**  `pytesseract` (Tesseract OCR engine) for text extraction from video frames.
-- **Image/Video Processing:**  `opencv-python` for frame manipulation, logo detection, and quality assessment; `moviepy` for video loading and audio extraction.
+- **Image/Video Processing:**  `opencv-python` for frame manipulation and quality assessment; `moviepy` for video loading and audio extraction.
 - **Core Libraries:**  `python-dotenv`, `groq`, `openai`, `google-generativeai`, `videogrep`, `scikit-learn`, `nltk`, `progressbar2`, `Pillow`, `yt-dlp`.
 - **Concurrency:**  `asyncio` for asynchronous API calls (e.g., OpenRouter), improving performance.
 - **Packaging:** `setuptools`
@@ -132,21 +132,18 @@ video-topic-splitter -i <input_video_path> -o <output_directory> --transcribe-on
 This mode analyzes a single image file.
 
 ```bash
-video-topic-splitter -i <image_path> -o <output_directory> --analyze-screenshot --screenshot-context "Context for analysis" --software-list software.txt --logo-db logos/
+video-topic-splitter -i <image_path> -o <output_directory> --analyze-screenshot --screenshot-context "Context for analysis" --software-list software.txt
 ```
 
 - `--screenshot-context`: optional context to consider.
 - `--software-list`: text file containing software to detect (one per line)
-- `--logo-db`: path to logo database directory.
 
 ### Advanced Options
 
 - `--api <deepgram|groq>`:  Selects the transcription API (default: `deepgram`).
 - `--skip-unsilence`:  Disables silence removal during audio preprocessing.
 - `--software-list <path_to_text_file>`:  Specifies a text file containing a list of software names to detect (one software name per line).
-- `--logo-db <path_to_logo_directory>`:  Provides a directory containing logo images (PNG format) for software detection.  Logo file names should match the software names (e.g., `firefox.png`, `vscode.png`).
 - `--ocr-lang <language_code>`:  Sets the language for OCR (default: `eng` for English).  Use Tesseract language codes (e.g., `fra` for French, `spa` for Spanish).
-- `--logo-threshold <float_value>`:  Adjusts the confidence threshold for logo detection (0.0 to 1.0, default: 0.8).  Higher values are stricter.
 - `--thumbnail-interval <seconds>`:  Sets the time interval (in seconds) between generated thumbnails (default: 5).
 - `--max-thumbnails <integer>`:  Limits the maximum number of thumbnails generated per segment (default: 5).
 - `--min-thumbnail-confidence <float_value>`: The minimum confidence for thumbnail analysis.
@@ -180,7 +177,6 @@ The core processing logic resides in `video_topic_splitter.core.process_video`. 
   - Scene detection is performed with real-time progress visualization, providing feedback during processing.
   - Key frames are extracted (start, end, and a configurable number of internal frames) with progress bar feedback.
   - Frame quality is assessed.
-  - Software logos are detected using template matching with OpenCV (`detect_software_logos`).
   - OCR is performed using `pytesseract` to detect text (`detect_software_names`).
   - Google's Gemini API (`analyze_with_gemini`) analyzes each frame, providing a textual description of the visual content in the context of the segment's transcript and identified topic.
   - Screenshots of high-quality key frames are saved.
@@ -195,7 +191,7 @@ The core processing logic resides in `video_topic_splitter.core.process_video`. 
 ### Screenshot Analysis Workflow (Separate Path)
 
 - If the `--analyze-screenshot` flag is provided, the tool skips the video processing steps and instead analyzes a single image file.
-- It performs software detection (OCR and logo matching) and uses the Gemini API to analyze the screenshot content.
+- It performs software detection (OCR) and uses the Gemini API to analyze the screenshot content.
 - Results are saved to `results.json`.
 
 ## Project Structure 📂
@@ -224,7 +220,7 @@ The tool creates a project directory for each video processed. The structure is 
 ## Configuration ⚙️
 
 - **API Keys:** You *must* set the following environment variables with your API keys:
-  - `DG_API_KEY`: Your Deepgram API key.
+  - `DEEPGRAM_API_KEY`: Your Deepgram API key.
   - `GROQ_API_KEY`: Your Groq API key (if using the `--api groq` option).
   - `GEMINI_API_KEY`: Your Google Gemini API key.
   - `OPENROUTER_API_KEY`: Your OpenRouter API key.
@@ -233,7 +229,7 @@ The tool creates a project directory for each video processed. The structure is 
 
     ```bash
     # .env file
-    DG_API_KEY=your_deepgram_key
+    DEEPGRAM_API_KEY=your_deepgram_key
     GROQ_API_KEY=your_groq_key
     GEMINI_API_KEY=your_gemini_key
     OPENROUTER_API_KEY=your_openrouter_key

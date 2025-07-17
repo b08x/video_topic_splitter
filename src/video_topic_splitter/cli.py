@@ -96,18 +96,7 @@ def main() -> None:
         help="Path to a text file containing list of software applications to detect (one per line)",
     )
     parser.add_argument(
-        "--logo-db",
-        type=str,
-        help="Path to directory containing software logo templates",
-    )
-    parser.add_argument(
         "--ocr-lang", default="eng", help="Language for OCR detection (default: eng)"
-    )
-    parser.add_argument(
-        "--logo-threshold",
-        type=float,
-        default=0.8,
-        help="Confidence threshold for logo detection (0.0-1.0, default: 0.8)",
     )
     parser.add_argument(
         "--thumbnail-interval",
@@ -203,9 +192,7 @@ def main() -> None:
                 args.input,
                 project_path,
                 software_list=software_list,
-                logo_db_path=args.logo_db,
                 ocr_lang=args.ocr_lang,
-                logo_threshold=args.logo_threshold,
                 context=args.screenshot_context,
             )
 
@@ -222,14 +209,6 @@ def main() -> None:
                                 + ", ".join(
                                     f"{m['software']} ({m['detected_text']})"
                                     for m in detection["ocr_matches"]
-                                )
-                            )
-                        if detection.get("logo_matches"):
-                            print(
-                                "\nLogos detected: "
-                                + ", ".join(
-                                    f"{m['software']} (confidence: {m['confidence']:.2f})"
-                                    for m in detection["logo_matches"]
                                 )
                             )
                 else:
@@ -276,9 +255,7 @@ def main() -> None:
                 args.transcribe_only,
                 is_youtube_url=is_youtube,
                 software_list=software_list,
-                logo_db_path=args.logo_db,
                 ocr_lang=args.ocr_lang,
-                logo_threshold=args.logo_threshold,
                 thumbnail_interval=args.thumbnail_interval,
                 max_thumbnails=args.max_thumbnails,
                 min_thumbnail_confidence=args.min_thumbnail_confidence,
