@@ -23,10 +23,11 @@ setup(
         "python-dotenv>=1.0.0",
         "openai>=1.12.0",
         "google-generativeai>=0.4.3",
+        "requests>=2.31.0",
         "pydub>=0.25.1",
         "moviepy>=1.0.3",
         "pyaudio",
-        "pyscenedetect[opencv]>=0.6.2",
+        "scenedetect[opencv]>=0.6.2",
         "imagehash>=4.3.1",
         "videogrep>=2.0.0",
         "ffmpeg-normalize",
@@ -39,7 +40,6 @@ setup(
         "pytesseract>=0.3.10",
         "opencv-python>=4.8.0",
         "numpy>=1.24.0",
-        "openrouter-api-client>=0.3.0",
     ],
     entry_points={
         "console_scripts": [

@@ -3,6 +3,7 @@ python-dotenv
 groq
 openai
 google-generativeai
+requests
 videogrep
 scikit-learn
 nltk
@@ -11,7 +12,7 @@ Pillow
 yt-dlp
 moviepy
 opencv-python
-pyscenedetect
+scenedetect
 imagehash
 
 # For audio processing
