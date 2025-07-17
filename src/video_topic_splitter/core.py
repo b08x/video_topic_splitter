@@ -181,7 +181,7 @@ def process_video(
 
         # Topic modeling remains the same
         topic_results = process_transcript(
-            transcript, project_path, num_topics, register=register
+            transcript, project_path, num_topics, register=register, debug=False
         )
 
         # Visual analysis is now scene-based

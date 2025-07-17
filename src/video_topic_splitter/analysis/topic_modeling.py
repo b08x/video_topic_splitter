@@ -6,7 +6,8 @@ import json
 import logging
 import os
 import re
-from typing import Dict, List
+import time
+from typing import Dict, List, Optional
 
 import nltk
 import numpy as np
@@ -46,52 +47,173 @@ def preprocess_text(text: str) -> str:
 class TopicAnalyzer:
     """Analyzes transcript segments to identify topics and create segments."""
 
-    def __init__(self, num_topics: int, register: str = "it-workflow"):
+    def __init__(self, num_topics: int, register: str = "it-workflow", debug: bool = False):
         self.num_topics = num_topics
         self.register = register
+        self.debug = debug
         self.vectorizer = TfidfVectorizer(preprocessor=preprocess_text)
+        
+        # Enable debug logging if requested
+        if self.debug:
+            logging.getLogger(__name__).setLevel(logging.DEBUG)
+            logger.debug("Debug mode enabled for TopicAnalyzer")
 
-    async def _get_topic_from_openrouter(self, text_chunk: str) -> Dict:
-        """Get topic and keywords from OpenRouter API asynchronously."""
+    def _parse_json_response(self, content: str) -> Dict:
+        """Parse JSON from OpenRouter response with multiple fallback strategies."""
+        # Clean the content
+        content = content.strip()
+        
+        # Strategy 1: Direct JSON parsing
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+        
+        # Strategy 2: Extract JSON from markdown code blocks
+        patterns = [
+            r"```json\s*({.*?})\s*```",  # ```json {content} ```
+            r"```\s*({.*?})\s*```",      # ``` {content} ```
+            r"```json\s*\n({.*?})\n```", # ```json\n {content} \n```
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, content, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(1))
+                except json.JSONDecodeError:
+                    continue
+        
+        # Strategy 3: Find JSON object in mixed content
+        json_pattern = r'({\s*"[^"]+"\s*:[^}]+})'  # Basic JSON object pattern
+        match = re.search(json_pattern, content, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                pass
+        
+        # Strategy 4: Extract individual fields using regex
+        topic_match = re.search(r'"topic"\s*:\s*"([^"]+)"', content)
+        keywords_match = re.search(r'"keywords"\s*:\s*\[([^\]]+)\]', content)
+        relationship_match = re.search(r'"relationship"\s*:\s*"([^"]+)"', content)
+        confidence_match = re.search(r'"confidence"\s*:\s*(\d+)', content)
+        
+        if topic_match:
+            result = {
+                "topic": topic_match.group(1),
+                "keywords": [],
+                "relationship": "NEW",
+                "confidence": 50
+            }
+            
+            if keywords_match:
+                keywords_str = keywords_match.group(1)
+                # Extract keywords from string like "word1", "word2", "word3"
+                keywords = re.findall(r'"([^"]+)"', keywords_str)
+                result["keywords"] = keywords
+            
+            if relationship_match:
+                result["relationship"] = relationship_match.group(1)
+            
+            if confidence_match:
+                result["confidence"] = int(confidence_match.group(1))
+            
+            return result
+        
+        return None
+    
+    def _validate_response(self, response: Dict) -> Dict:
+        """Validate and normalize the response from OpenRouter."""
+        # Ensure required fields exist with defaults
+        validated = {
+            "topic": response.get("topic", "Uncategorized"),
+            "keywords": response.get("keywords", []),
+            "relationship": response.get("relationship", "NEW"),
+            "confidence": response.get("confidence", 50)
+        }
+        
+        # Validate and normalize topic
+        if not validated["topic"] or not isinstance(validated["topic"], str):
+            validated["topic"] = "Uncategorized"
+        
+        # Validate and normalize keywords
+        if not isinstance(validated["keywords"], list):
+            validated["keywords"] = []
+        validated["keywords"] = [str(kw) for kw in validated["keywords"] if kw]
+        
+        # Validate relationship
+        valid_relationships = ["CONTINUATION", "SHIFT", "NEW"]
+        if validated["relationship"] not in valid_relationships:
+            validated["relationship"] = "NEW"
+        
+        # Validate confidence
+        try:
+            confidence = int(validated["confidence"])
+            validated["confidence"] = max(0, min(100, confidence))  # Clamp to 0-100
+        except (ValueError, TypeError):
+            validated["confidence"] = 50
+        
+        return validated
+    
+    async def _get_topic_from_openrouter(self, text_chunk: str, max_retries: int = 3) -> Dict:
+        """Get topic and keywords from OpenRouter API with retry logic."""
         prompt = get_topic_prompt(self.register, text_chunk)
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable not set.")
 
-        try:
-            response = await asyncio.to_thread(
-                requests.post,
-                url="https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                data=json.dumps({
-                    "model": "microsoft/phi-3-medium-128k-instruct",
-                    "messages": [{"role": "user", "content": prompt}],
-                }),
-            )
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-            
+        for attempt in range(max_retries):
             try:
-                # First, try to parse the content directly as JSON
-                return json.loads(content)
-            except json.JSONDecodeError:
-                # If direct parsing fails, try to extract JSON from a markdown block
-                json_match = re.search(r"```json\n({.*?})\n```", content, re.DOTALL)
-                if json_match:
-                    return json.loads(json_match.group(1))
+                response = await asyncio.to_thread(
+                    requests.post,
+                    url="https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    data=json.dumps({
+                        "model": "microsoft/phi-4",
+                        "messages": [{"role": "user", "content": prompt}],
+                    }),
+                    timeout=30,  # Add timeout
+                )
+                response.raise_for_status()
+                content = response.json()["choices"][0]["message"]["content"]
+                
+                # Enhanced JSON parsing with multiple fallback strategies
+                if self.debug:
+                    logger.debug("Raw OpenRouter response (attempt %d/%d):\n%s", attempt + 1, max_retries, content)
+                
+                parsed_json = self._parse_json_response(content)
+                if parsed_json:
+                    validated = self._validate_response(parsed_json)
+                    if self.debug:
+                        logger.debug("Successfully parsed and validated response: %s", validated)
+                    return validated
                 else:
-                    logger.warning("Could not parse JSON from OpenRouter response. Raw content:\n%s", content)
-                    return {"topic": "Uncategorized", "keywords": []}
+                    logger.warning("Could not parse JSON from OpenRouter response (attempt %d/%d). Raw content:\n%s", 
+                                 attempt + 1, max_retries, content)
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(1 * (attempt + 1))  # Exponential backoff
+                        continue
+                    return self._validate_response({"topic": "Uncategorized", "keywords": [], "relationship": "NEW", "confidence": 0})
 
-        except requests.RequestException as e:
-            logger.error(f"Error calling OpenRouter API: {e}")
-            return {"topic": "Error", "keywords": []}
-        except (KeyError, json.JSONDecodeError) as e:
-            logger.error(f"Error parsing OpenRouter response: {e}")
-            return {"topic": "Parsing Error", "keywords": []}
+            except requests.RequestException as e:
+                logger.error(f"Error calling OpenRouter API (attempt %d/%d): {e}", attempt + 1, max_retries)
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 * (attempt + 1))  # Exponential backoff
+                    continue
+                return self._validate_response({"topic": "API Error", "keywords": [], "relationship": "NEW", "confidence": 0})
+            except (KeyError, json.JSONDecodeError) as e:
+                logger.error(f"Error parsing OpenRouter response (attempt %d/%d): {e}", attempt + 1, max_retries)
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1 * (attempt + 1))
+                    continue
+                return self._validate_response({"topic": "Parsing Error", "keywords": [], "relationship": "NEW", "confidence": 0})
+        
+        # This should never be reached, but just in case
+        return self._validate_response({"topic": "Unknown Error", "keywords": [], "relationship": "NEW", "confidence": 0})
 
     async def analyze_segments(self, segments: List[Dict]) -> List[Dict]:
         """Analyze each text segment to determine its topic."""
@@ -99,8 +221,11 @@ class TopicAnalyzer:
         topic_results = await asyncio.gather(*tasks)
 
         for i, seg in enumerate(segments):
-            seg["topic"] = topic_results[i].get("topic", "Uncategorized")
-            seg["keywords"] = topic_results[i].get("keywords", [])
+            result = topic_results[i]
+            seg["topic"] = result.get("topic", "Uncategorized")
+            seg["keywords"] = result.get("keywords", [])
+            seg["relationship"] = result.get("relationship", "NEW")
+            seg["confidence"] = result.get("confidence", 50)
         return segments
 
     def segment_by_topic(self, analyzed_segments: List[Dict]) -> List[Dict]:
@@ -130,13 +255,13 @@ class TopicAnalyzer:
 
 
 def process_transcript(
-    transcript: List[Dict], project_path: str, num_topics: int, register: str
+    transcript: List[Dict], project_path: str, num_topics: int, register: str, debug: bool = False
 ) -> Dict:
     """
     Processes a transcript to model topics and create topic-based segments.
     """
     print("Starting topic modeling and segmentation...")
-    analyzer = TopicAnalyzer(num_topics, register)
+    analyzer = TopicAnalyzer(num_topics, register, debug)
 
     # Analyze segments asynchronously
     analyzed_segments = asyncio.run(analyzer.analyze_segments(transcript))
