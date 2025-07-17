@@ -74,13 +74,17 @@ class TopicAnalyzer:
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
             
-            # Extract JSON from the response string
-            json_match = re.search(r"```json\n({.*?})\n```", content, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group(1))
-            else:
-                logger.warning("Could not parse JSON from OpenRouter response.")
-                return {"topic": "Uncategorized", "keywords": []}
+            try:
+                # First, try to parse the content directly as JSON
+                return json.loads(content)
+            except json.JSONDecodeError:
+                # If direct parsing fails, try to extract JSON from a markdown block
+                json_match = re.search(r"```json\n({.*?})\n```", content, re.DOTALL)
+                if json_match:
+                    return json.loads(json_match.group(1))
+                else:
+                    logger.warning("Could not parse JSON from OpenRouter response. Raw content:\n%s", content)
+                    return {"topic": "Uncategorized", "keywords": []}
 
         except requests.RequestException as e:
             logger.error(f"Error calling OpenRouter API: {e}")
