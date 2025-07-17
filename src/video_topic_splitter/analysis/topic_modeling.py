@@ -19,7 +19,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from ..constants import CHECKPOINTS
 from ..project import save_checkpoint
-from ..prompt_templates import get_topic_modeling_prompt
+from ..prompt_templates import get_topic_prompt
 
 # Setup for NLTK
 nltk.download("punkt", quiet=True)
@@ -53,7 +53,7 @@ class TopicAnalyzer:
 
     async def _get_topic_from_openrouter(self, text_chunk: str) -> Dict:
         """Get topic and keywords from OpenRouter API asynchronously."""
-        prompt = get_topic_modeling_prompt(text_chunk, self.register)
+        prompt = get_topic_prompt(self.register, text_chunk)
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable not set.")
