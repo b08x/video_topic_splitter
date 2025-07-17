@@ -1,16 +1,22 @@
-# Use the linuxserver.io FFmpeg image as the base
-FROM linuxserver/ffmpeg:amd64-6.1.1
+# Use an official NVIDIA CUDA runtime as a parent image
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 
 # Metadata
 LABEL maintainer="Your Name <your.email@example.com>"
 LABEL org.opencontainers.image.source="https://github.com/your-repo/video-topic-splitter"
 
-# Install Python and other system dependencies
+# Set non-interactive frontend
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies including Python, pip, FFmpeg, curl, and Tesseract
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    nano \
     python3 \
     python3-pip \
-    python3-dev build-essential \
+    python3-dev \
+    build-essential \
+    ffmpeg \
+    curl \
+    nano \
     libxcb-glx0 \
     libxxf86vm-dev \
     libxcb-cursor0 \
@@ -19,22 +25,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     portaudio19-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -ms /usr/bin/bash -u 1001 -U vts
-    
+# Create a non-root user
+RUN useradd -ms /bin/bash -u 1001 -U vts
 WORKDIR /home/vts
+ENV PATH="/home/vts/.local/bin:${PATH}"
 
-ENV PATH="$HOME/.local/bin:${PATH}"
-# Switch to non-root user after installation
-# Copy application code with correct permissions
+# Copy application code
 COPY --chown=vts:vts src /home/vts/src
 COPY --chown=vts:vts setup.py /home/vts/
 COPY --chown=vts:vts requirements.txt /home/vts/
 
-# Install dependencies as user
-RUN pip install --upgrade setuptools && \
-	pip install --no-cache-dir . && \
-    chown -R vts:vts /home/vts
+# Switch to non-root user for dependency installation
+USER vts
 
-# Set entrypoint (using -m for correct module resolution)
-# ENTRYPOINT ["python3", "-m", "video_topic_splitter.cli"]
+# Install Python dependencies
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# Set the entrypoint
 ENTRYPOINT ["/bin/bash"]

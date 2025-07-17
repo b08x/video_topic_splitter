@@ -7,7 +7,6 @@ CHECKPOINTS = {
     "YOUTUBE_DOWNLOAD_COMPLETE": 1,  # New checkpoint for YouTube downloads
     "AUDIO_PROCESSED": 2,
     "TRANSCRIPTION_COMPLETE": 3,
-    "TRANSCRIBE_ONLY_COMPLETE": 4,  # Checkpoint for transcription-only mode
     "TOPIC_MODELING_COMPLETE": 5,
     "SEGMENTS_IDENTIFIED": 6,
     "SCENES_DETECTED": 7,  # New checkpoint for scene detection

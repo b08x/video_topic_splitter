@@ -21,28 +21,25 @@ setup(
     include_package_data=True,
     install_requires=[
         "python-dotenv>=1.0.0",
-        "deepgram-sdk>=2.12.0",
-        "groq>=0.4.0",
+        "openai>=1.12.0",
+        "google-generativeai>=0.4.3",
         "pydub>=0.25.1",
-        "moviepy",
+        "moviepy>=1.0.3",
         "pyaudio",
-        "scenedetect>=0.6.2",
-        "openai>=1.12.0",  # Corrected version to match requirements.txt
-        "google-generativeai>=0.4.3",  # Corrected version to match requirements.txt
-        "videogrep>=2.0.0",  # Corrected version to match requirements.txt
-        "ffmpeg-python>=0.2.0",  # Added explicit version
-        "ffmpeg-normalize",  # Added as it's used
-        "unsilence>=0.4.2",  # Added explicit version
-        "scikit-learn>=1.4.1",  # Added explicit version
-        "nltk>=3.8.1",  # Added explicit version
-        "progressbar2>=4.2.0",  # Corrected version to match requirements.txt
-        "moviepy>=1.0.3",  # Corrected version to match requirements.txt
-        "Pillow>=10.2.0",  # Corrected version to match requirements.txt
-        "yt-dlp>=2024.3.24",  # Corrected version to match requirements.txt
-        "pytesseract>=0.3.10",  # Corrected version to match requirements.txt
-        "opencv-python>=4.8.0",  # Added explicit version
-        "numpy>=1.24.0",  # Added explicit version
-        "openrouter>=0.3.0",  # Added explicit version
+        "pyscenedetect[opencv]>=0.6.2",
+        "imagehash>=4.3.1",
+        "videogrep>=2.0.0",
+        "ffmpeg-normalize",
+        "unsilence>=0.4.2",
+        "scikit-learn>=1.4.1",
+        "nltk>=3.8.1",
+        "progressbar2>=4.2.0",
+        "Pillow>=10.2.0",
+        "yt-dlp>=2024.3.24",
+        "pytesseract>=0.3.10",
+        "opencv-python>=4.8.0",
+        "numpy>=1.24.0",
+        "openrouter-api-client>=0.3.0",
     ],
     entry_points={
         "console_scripts": [

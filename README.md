@@ -1,8 +1,8 @@
 # Video Topic Splitter: AI-Powered Video Segmentation and Analysis 🎬
 
-**Automatically segment and analyze videos based on topic changes, leveraging cutting-edge AI.**
+**Automatically segment and analyze videos based on topic changes and visual scenes, leveraging cutting-edge AI.**
 
-This README provides a detailed overview of the Video Topic Splitter, including its functionality, usage, and internal workings.  It's based on a thorough analysis of the codebase, so it's a more technical and precise guide than a typical user-oriented README.
+This README provides a detailed overview of the Video Topic Splitter, including its functionality, usage, and internal workings. It's based on a thorough analysis of the codebase, so it's a more technical and precise guide than a typical user-oriented README.
 
 ## Table of Contents
 
@@ -17,47 +17,54 @@ This README provides a detailed overview of the Video Topic Splitter, including 
   - [Installation 💾](#installation-)
   - [Usage 💻](#usage-)
     - [Basic Video Processing](#basic-video-processing)
+    - [Using a Pre-existing Transcript](#using-a-pre-existing-transcript)
     - [Transcribe Only](#transcribe-only)
     - [Analyze Screenshot](#analyze-screenshot)
     - [Advanced Options](#advanced-options)
   - [Detailed Processing Pipeline (Technical Overview) ⚙️](#detailed-processing-pipeline-technical-overview-️)
-    - [1. Initialization and Checkpoint Loading](#1-initialization-and-checkpoint-loading)
+    - [1. Initialization and Input Validation](#1-initialization-and-input-validation)
     - [2. YouTube Video Handling (Conditional)](#2-youtube-video-handling-conditional)
-    - [3. Audio Processing (`handle_audio_video`)](#3-audio-processing-handle_audio_video)
-    - [4. Transcription and Analysis (`handle_transcription` or Transcribe-Only)](#4-transcription-and-analysis-handle_transcription-or-transcribe-only)
-    - [5. Final Checkpoint and Results](#5-final-checkpoint-and-results)
-    - [Screenshot Analysis Workflow (Separate Path)](#screenshot-analysis-workflow-separate-path)
+    - [3. Transcription (Conditional)](#3-transcription-conditional)
+    - [4. Topic Modeling](#4-topic-modeling)
+    - [5. Scene-Based Visual Analysis](#5-scene-based-visual-analysis)
+    - [6. Final Checkpoint and Results](#6-final-checkpoint-and-results)
   - [Project Structure 📂](#project-structure-)
   - [Configuration ⚙️](#configuration-️)
   - [Dockerized Deployment 🐳](#dockerized-deployment-)
-    - [Docker Compose Setup](#docker-compose-setup)
-    - [Dockerfile Explanation](#dockerfile-explanation)
   - [Contributing 🧑‍💻](#contributing-)
   - [License 📜](#license-)
 
 ## About 📖
 
-The Video Topic Splitter is a powerful tool designed to automatically segment videos into meaningful sections based on topic shifts and provide comprehensive content analysis. It utilizes advanced AI models and techniques, including:
+The Video Topic Splitter is a powerful tool designed to automatically segment videos into meaningful sections and provide comprehensive content analysis. It intelligently combines two parallel analysis tracks:
 
-- **Speech-to-Text:**  Accurate transcription of video audio.
-- **Topic Modeling:**  Identification of distinct topics within the transcribed text.
-- **Visual Analysis:**  Extraction of visual information (text) and contextual analysis of video frames.
-- **Intelligent Segmentation:**  Division of the video into coherent segments based on identified topic changes.
+1.  **Topic-Based Segmentation:** Analyzes the audio transcript to identify shifts in conversation, creating segments based on distinct topics.
+2.  **Scene-Based Visual Analysis:** Detects visual scene changes in the video, extracting unique frames for detailed examination.
+
+It utilizes advanced AI models and techniques, including:
+
+- **Speech-to-Text:** Accurate transcription of video audio via OpenAI's Whisper model.
+- **Topic Modeling:** Identification of distinct topics within the transcribed text.
+- **Visual Scene Detection:** Automated detection of scene changes using `PySceneDetect`.
+- **Unique Frame Extraction:** Intelligent selection of visually unique frames from each scene using `ImageHash` to avoid redundancy.
+- **Contextual Frame Analysis:** In-depth analysis of extracted frames using Google's Gemini model.
 
 This makes it ideal for analyzing recordings of technical tutorials, meetings, presentations, support sessions, and more.
 
 ## Features ✨
 
-- **Automatic Video Segmentation:**  Divides videos into topic-based segments without manual intervention.
-- **Topic Modeling (OpenRouter's phi-4):**  Identifies the primary topic discussed in each segment.
-- **Transcription (Deepgram or Groq API):**  Provides high-quality transcripts of the video audio.
-- **Software Detection (OCR):**  Identifies software applications visible in the video through text extraction.
-- **Gemini Analysis (Google's Gemini API):**  Offers in-depth summaries and contextual understanding of each video segment, tailored to a specific register (IT Workflow, Generative AI, or Tech Support).
-- **Robust Checkpointing:**  Saves progress and allows resuming from interruptions, ensuring no data loss.
-- **YouTube URL Support:**  Downloads and processes videos directly from YouTube links.
-- **Customizable Analysis Registers:**  Tailor the analysis to specific domains (IT, AI, support) for more relevant insights.
-- **Screenshot Analysis Mode:**  Analyzes individual screenshots for software and content, separate from full video processing.
-- **Progress Visualization:**  Visual progress bars for scene detection and frame extraction processes, providing real-time feedback during processing.
+- **Dual Analysis Approach:** Combines topic-based text segmentation with scene-based visual analysis for a comprehensive understanding.
+- **Flexible Transcription:**
+    - Uses OpenAI's Whisper model for high-quality transcription.
+    - Supports custom Whisper API endpoints (e.g., local servers) via the `OPENAI_API_BASE` environment variable.
+    - Allows providing an external transcript file (`.srt`, `.vtt`, `.json`) to bypass the transcription step.
+- **Advanced Scene Detection:** Employs `PySceneDetect` to accurately identify scene boundaries in the video.
+- **Duplicate Frame Prevention:** Uses `ImageHash` to ensure that only visually unique frames from each scene are selected for analysis, improving efficiency.
+- **Topic Modeling (OpenRouter):** Identifies the primary topic discussed in each text segment.
+- **Software Detection (OCR):** Identifies software applications visible in video frames through text extraction.
+- **Gemini Analysis (Google):** Offers in-depth summaries and contextual understanding of each video frame.
+- **Robust Checkpointing:** Saves progress at each major stage, allowing resumption from interruptions.
+- **YouTube URL Support:** Downloads and processes videos directly from YouTube links.
 
 ## Use Cases
 
@@ -65,220 +72,165 @@ This makes it ideal for analyzing recordings of technical tutorials, meetings, p
 
 - **Error Diagnosis:** Pinpoint the exact moments in a video where errors occur and analyze the surrounding context.
 - **Pattern Recognition:** Identify recurring issues and their solutions across multiple support sessions.
-- **Knowledge Preservation:**  Create a searchable, segmented archive of technical support interactions.
-- **Procedural Tracking:**  Follow step-by-step troubleshooting procedures and identify deviations.
+- **Knowledge Preservation:** Create a searchable, segmented archive of technical support interactions.
+- **Procedural Tracking:** Follow step-by-step troubleshooting procedures and identify deviations.
 
 ### 2. AI Agent Interaction Analysis
 
-- **Prompt Engineering Analysis:**  Detect effective prompt patterns and how they influence model responses.
-- **Model Response Evaluation:**  Characterize the quality and relevance of AI model outputs within a specific context.
-- **Interaction Pattern Identification:**  Understand the flow of conversation between a user and an AI agent.
-- **Performance Monitoring:**  Assess the overall effectiveness of AI agent interactions over time.
+- **Prompt Engineering Analysis:** Detect effective prompt patterns and how they influence model responses.
+- **Model Response Evaluation:** Characterize the quality and relevance of AI model outputs within a specific context.
+- **Interaction Pattern Identification:** Understand the flow of conversation between a user and an AI agent.
+- **Performance Monitoring:** Assess the overall effectiveness of AI agent interactions over time.
 
 ## Tech Stack
 
-- **Transcription:**  Deepgram API (default) or Groq API (optional) for speech-to-text.
-- **Visual Analysis:**  Google's Gemini API for frame-level content analysis.
-- **Topic Modeling:**  OpenRouter's `microsoft/phi-4` model for topic identification and segmentation.
-- **Audio Processing:**  `ffmpeg` and `ffmpeg-normalize` for audio extraction, conversion, normalization, and dynamic range compression; `unsilence` for optional silence removal.
-- **OCR:**  `pytesseract` (Tesseract OCR engine) for text extraction from video frames.
-- **Image/Video Processing:**  `opencv-python` for frame manipulation and quality assessment; `moviepy` for video loading and audio extraction.
-- **Core Libraries:**  `python-dotenv`, `groq`, `openai`, `google-generativeai`, `videogrep`, `scikit-learn`, `nltk`, `progressbar2`, `Pillow`, `yt-dlp`.
-- **Concurrency:**  `asyncio` for asynchronous API calls (e.g., OpenRouter), improving performance.
-- **Packaging:** `setuptools`
-- **Runtime:** Python 3.8+
+- **Transcription:** OpenAI Whisper API (via `curl`).
+- **Visual Analysis:** Google's Gemini API.
+- **Topic Modeling:** OpenRouter's `microsoft/phi-4` model.
+- **Scene Detection:** `PySceneDetect`.
+- **Image Hashing:** `ImageHash`.
+- **Audio Processing:** `ffmpeg`, `ffmpeg-normalize`, `unsilence`.
+- **OCR:** `pytesseract` (Tesseract OCR engine).
+- **Image/Video Processing:** `opencv-python`, `moviepy`.
+- **Core Libraries:** `python-dotenv`, `Pillow`, `yt-dlp`, `scikit-learn`, `nltk`, `progressbar2`.
+- **Packaging:** `setuptools`.
+- **Runtime:** Python 3.8+.
 
 ## Installation 💾
 
 ```bash
-pip install video_topic_splitter
+pip install -r requirements.txt
+pip install .
 ```
 
 ## Usage 💻
 
 ### Basic Video Processing
 
-```bash
-video-topic-splitter -i <input_video_path_or_youtube_url> -o <output_directory> --topics <number_of_topics> --register <register>
-```
-
-- `-i`:  Path to a local video file (MP4, MKV) or a YouTube video URL.
-- `-o`:  Base directory where the project folder will be created.
-- `--topics`:  The desired number of topics for topic modeling (default: 5).
-- `--register`:  Select analysis register (default: it-workflow). Options: `it-workflow`, `gen-ai`, `tech-support`
-
-**Example (YouTube URL):**
+This command will perform the full pipeline: audio extraction, transcription, topic modeling, and visual scene analysis.
 
 ```bash
-video-topic-splitter -i "https://www.youtube.com/watch?v=dQw4w9WgXcQ" -o output --topics 5 --register it-workflow
+video-topic-splitter -i <video_path_or_youtube_url> -o <output_directory>
 ```
 
-**Example (Local Video File):**
+### Using a Pre-existing Transcript
+
+If you have a transcript file, you can skip the audio extraction and transcription steps.
 
 ```bash
-video-topic-splitter -i my_video.mp4 -o output --topics 3 --register gen-ai
+video-topic-splitter -i <video_path> -o <output_directory> --transcript <path_to_transcript.srt>
 ```
+
+- `--transcript`: Path to a local transcript file (`.srt`, `.vtt`, or `.json`).
 
 ### Transcribe Only
 
-This mode generates a transcript but skips topic modeling and visual analysis.
+This mode extracts audio (if needed) and generates transcript files (`.json`, `.srt`, `.vtt`) without performing any further analysis.
 
 ```bash
-video-topic-splitter -i <input_video_path> -o <output_directory> --transcribe-only
+video-topic-splitter -i <video_path> -o <output_directory> --transcribe-only
 ```
 
 ### Analyze Screenshot
 
-This mode analyzes a single image file.
+This mode analyzes a single image file instead of a video.
 
 ```bash
-video-topic-splitter -i <image_path> -o <output_directory> --analyze-screenshot --screenshot-context "Context for analysis" --software-list software.txt
+video-topic-splitter --analyze-screenshot -i <image_path> -o <output_directory> --screenshot-context "Context for analysis"
 ```
-
-- `--screenshot-context`: optional context to consider.
-- `--software-list`: text file containing software to detect (one per line)
 
 ### Advanced Options
 
-- `--api <deepgram|groq>`:  Selects the transcription API (default: `deepgram`).
-- `--skip-unsilence`:  Disables silence removal during audio preprocessing.
-- `--software-list <path_to_text_file>`:  Specifies a text file containing a list of software names to detect (one software name per line).
-- `--ocr-lang <language_code>`:  Sets the language for OCR (default: `eng` for English).  Use Tesseract language codes (e.g., `fra` for French, `spa` for Spanish).
-- `--thumbnail-interval <seconds>`:  Sets the time interval (in seconds) between generated thumbnails (default: 5).
-- `--max-thumbnails <integer>`:  Limits the maximum number of thumbnails generated per segment (default: 5).
-- `--min-thumbnail-confidence <float_value>`: The minimum confidence for thumbnail analysis.
+- `--topics <integer>`: The desired number of topics for topic modeling (default: 5).
+- `--frames-per-scene <integer>`: Number of unique frames to extract per detected scene (default: 1).
+- `--register <it-workflow|gen-ai|tech-support>`: Selects the analysis register for Gemini (default: `it-workflow`).
+- `--skip-unsilence`: Disables silence removal during audio preprocessing.
+- `--software-list <path_to_text_file>`: Specifies a text file containing a list of software names to detect via OCR.
+- `--ocr-lang <language_code>`: Sets the language for OCR (default: `eng`).
 
 ## Detailed Processing Pipeline (Technical Overview) ⚙️
 
-The core processing logic resides in `video_topic_splitter.core.process_video`. Here's a breakdown of the steps:
+The core logic resides in `video_topic_splitter.core.process_video`.
 
-### 1. Initialization and Checkpoint Loading
+### 1. Initialization and Input Validation
 
-- The tool loads a checkpoint file (`checkpoint.pkl`) from the project directory to resume processing if it exists. This allows the tool to pick up where it left off if interrupted.
+- A project folder is created.
+- The tool checks if the input is a valid file path or YouTube URL and if the optional transcript file exists and has a supported format.
 
 ### 2. YouTube Video Handling (Conditional)
 
-- If the input is a YouTube URL, the tool uses `yt-dlp` to download the video in the best available MP4 format and save it to the project directory (`source_video.mp4`). The best quality thumbnail is also downloaded.
-- This step is skipped if the checkpoint indicates it has already been completed.
+- If the input is a YouTube URL, `yt-dlp` downloads the video. This step is skipped if a checkpoint indicates it's already complete.
 
-### 3. Audio Processing (`handle_audio_video`)
+### 3. Transcription (Conditional)
 
-- **Normalization:** The audio levels of the video are normalized using `ffmpeg-normalize`.
-- **Silence Removal (Optional):** If `--skip-unsilence` is not used, silent parts of the audio are sped up using the `unsilence` library.
-- **Audio Extraction:** The audio stream is extracted from the (potentially unsilenced) video using `moviepy` and saved as an Opus file (`extracted_audio.opus`).
-- **Mono Conversion and Resampling:** The extracted audio is converted to mono, resampled to 16kHz, and encoded as AAC (`mono_resampled_audio.m4a`) using `ffmpeg`. Volume adjustment, high-pass filtering, and dynamic range compression are also applied to optimize for transcription.
-- Checkpointing is used to avoid reprocessing audio if these steps have already been completed.
+- **If a transcript file is provided (`--transcript`):** The file is parsed, and its content is used for topic modeling.
+- **If no transcript is provided:**
+    - **Audio Processing:** The audio is extracted, normalized, and optimized for transcription using `ffmpeg` and `unsilence`.
+    - **Whisper Transcription:** A `curl` command sends the processed audio to a Whisper API endpoint (configurable via `OPENAI_API_BASE`). The JSON response is parsed into a standard format.
+- The resulting transcript is saved in `.json`, `.srt`, and `.vtt` formats.
 
-### 4. Transcription and Analysis (`handle_transcription` or Transcribe-Only)
+### 4. Topic Modeling
 
-- **Transcription (Deepgram or Groq):** The processed audio (`mono_resampled_audio.m4a`) is transcribed using either the Deepgram API (default) or the Groq API.  The raw transcription and a processed version (segmented into sentences with timestamps) are saved to JSON files (`transcription.json` and `transcript.json`).
-- **Topic Modeling (OpenRouter's phi-4):** If `--transcribe-only` is *not* used, the `TopicAnalyzer` class (in `video_topic_splitter.analysis.topic_modeling.py`) analyzes the transcript using OpenRouter's `microsoft/phi-4` model.  It identifies topic shifts and generates segment metadata (start/end times, dominant topic, keywords).  This uses TF-IDF similarity and a configurable threshold to detect topic changes.  Asynchronous calls to the OpenRouter API are used for performance.
-- **Visual Analysis (`split_and_analyze_video`):** The video is split into segments based on the topic boundaries. For each segment:
-  - Scene detection is performed with real-time progress visualization, providing feedback during processing.
-  - Key frames are extracted (start, end, and a configurable number of internal frames) with progress bar feedback.
-  - Frame quality is assessed.
-  - OCR is performed using `pytesseract` to detect text (`detect_software_names`).
-  - Google's Gemini API (`analyze_with_gemini`) analyzes each frame, providing a textual description of the visual content in the context of the segment's transcript and identified topic.
-  - Screenshots of high-quality key frames are saved.
-  - A visual summary is generated for each segment.
-- Checkpointing occurs after transcription, topic modeling, and visual analysis to enable resuming from each stage.
+- The `TopicAnalyzer` class analyzes the transcript to identify topic shifts and generate segment metadata (start/end times, dominant topic, keywords).
 
-### 5. Final Checkpoint and Results
+### 5. Scene-Based Visual Analysis
 
-- The final results (topics, segment metadata, visual analysis summaries) are saved to `results.json`.
-- The checkpoint is updated to reflect the completion of the entire process.
+- **Scene Detection:** `PySceneDetect` is used to detect scene changes in the video, creating a list of scenes.
+- **Unique Frame Extraction:** For each detected scene, a specified number of frames (`--frames-per-scene`) are extracted.
+- **Duplicate Filtering:** `ImageHash` calculates a perceptual hash for each extracted frame. Frames that are too visually similar to already selected frames are discarded to ensure uniqueness.
+- **Frame Analysis:** Each unique frame is analyzed:
+    - **OCR:** `pytesseract` detects software names.
+    - **Gemini Analysis:** Google's Gemini model provides a textual description of the visual content.
 
-### Screenshot Analysis Workflow (Separate Path)
+### 6. Final Checkpoint and Results
 
-- If the `--analyze-screenshot` flag is provided, the tool skips the video processing steps and instead analyzes a single image file.
-- It performs software detection (OCR) and uses the Gemini API to analyze the screenshot content.
-- Results are saved to `results.json`.
+- The final results, including topics, text-based segments, and scene-based visual analyses, are saved to `results.json`.
+- A final checkpoint is saved to mark the process as complete.
 
 ## Project Structure 📂
 
-The tool creates a project directory for each video processed. The structure is as follows:
+The tool creates a project directory with the following structure:
 
 ```
 <output_directory>/
-└── <project_name>_<timestamp>/  (e.g., my_video_20240315_143000)
+└── <project_name>_<timestamp>/
     ├── audio/
-    │   ├── extracted_audio.opus       (Raw extracted audio)
     │   └── mono_resampled_audio.m4a  (Processed audio for transcription)
-    ├── segments/
-    │   ├── segment_1/               (Individual segment directories)
-    │   │    └── ...
-    │   └── analyzed_segments.json   (Visual analysis results for all segments)
-    ├── thumbnails/
-    │   ├── metadata.json            (Metadata about generated thumbnails)
-    │   └── thumbnail_001.jpg        (Thumbnail images)
-    ├── transcription.json          (Raw transcription data from Deepgram/Groq)
-    ├── transcript.json              (Processed transcript - sentence segmentation)
-    ├── results.json                (Final results: topics, segments, analysis)
-    └── checkpoint.pkl              (Checkpoint file for resuming)
+    ├── scenes/
+    │   ├── frames/
+    │   │   └── Scene-001-01.jpg     (Extracted frames)
+    │   └── scenes.csv               (Scene list from PySceneDetect)
+    ├── transcription.json           (Raw Whisper API response)
+    ├── transcript.json              (Processed transcript)
+    ├── transcript.srt               (SRT subtitle file)
+    ├── transcript.vtt               (VTT subtitle file)
+    ├── results.json                 (Final combined analysis results)
+    └── checkpoint.pkl               (Checkpoint file for resuming)
 ```
 
 ## Configuration ⚙️
 
-- **API Keys:** You *must* set the following environment variables with your API keys:
-  - `DEEPGRAM_API_KEY`: Your Deepgram API key.
-  - `GROQ_API_KEY`: Your Groq API key (if using the `--api groq` option).
+- **API Keys:** You *must* set the following environment variables. A `.env` file is recommended.
+  - `OPENAI_API_KEY`: Your OpenAI API key. This is optional if you are using a local Whisper server that does not require authentication.
+  - `OPENAI_API_BASE`: (Optional) The base URL for the Whisper API. Defaults to `https://api.openai.com/v1`. Use this to point to a local inference server (e.g., `http://localhost:8080/v1`).
   - `GEMINI_API_KEY`: Your Google Gemini API key.
   - `OPENROUTER_API_KEY`: Your OpenRouter API key.
 
-    You can set these in your shell or use a `.env` file (recommended):
-
     ```bash
     # .env file
-    DEEPGRAM_API_KEY=your_deepgram_key
-    GROQ_API_KEY=your_groq_key
+    OPENAI_API_KEY=your_openai_key
+    OPENAI_API_BASE=http://localhost:8080/v1
     GEMINI_API_KEY=your_gemini_key
     OPENROUTER_API_KEY=your_openrouter_key
     ```
 
 ## Dockerized Deployment 🐳
 
-### Docker Compose Setup
-
-The `docker-compose.yml` file defines two services:
-
-- **`video-processor`**:  Builds and runs the Video Topic Splitter application.  It mounts the `./data` directory to `/app/data` inside the container for persistent storage of input and output.  It also sets environment variables for API keys.
-- **`redis`**: Provides a Redis instance for caching analysis results.
-
-**1. Configure Environment Variables:**
-
-Create a `.env` file:
-
-```
-DEEPGRAM_API_KEY=YOUR_DEEPGRAM_API_KEY
-GEMINI_API_KEY=YOUR_GEMINI_API_KEY
-OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY
-```
-
-**2. Build and Run:**
-
-```bash
-docker-compose up --build
-```
-
-**3. Usage within Docker:**
-
-```bash
-docker exec -it video-processor video-topic-splitter -i /app/data/input.mp4 -o /app/data/output
-```
-
-### Dockerfile Explanation
-
-The `Dockerfile` uses `linuxserver/ffmpeg` as a base image. Key steps:
-
-- Installs system dependencies (Python, pip, build tools, Tesseract OCR).
-- Creates a user `vts` (non-root) for security.
-- Copies the application code.
-- Installs Python dependencies.
-- Sets the entrypoint to run the `video-topic-splitter` command, allowing for command-line arguments.
+The project includes a `Dockerfile` and `docker-compose.yml` for containerized deployment. See the files for detailed setup instructions.
 
 ## Contributing 🧑‍💻
 
-This project was generated as an exercise in utilizing Large Language Models (specifically Claude) to develop a Python application.
+This project was generated as an exercise in utilizing Large Language Models to develop a Python application.
 
 ## License 📜
 
