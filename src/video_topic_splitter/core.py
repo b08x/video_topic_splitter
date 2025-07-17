@@ -8,8 +8,11 @@ from dotenv import load_dotenv
 
 from .analysis.topic_modeling import process_transcript
 from .analysis.visual_analysis import split_and_analyze_video
+from .analysis.segment_analysis import SegmentProcessor
 from .constants import CHECKPOINTS
 from .progress_tracker import ProgressTracker, create_console_progress_callback
+from .project_structure import ProjectStructure
+from .processing.video.video_segmentation import segment_video_by_topics
 from .processing.audio.audio import (convert_to_mono_and_resample,
                                      extract_audio, normalize_audio,
                                      remove_silence)
@@ -143,6 +146,14 @@ def process_video(
     progress_tracker.add_callback(create_console_progress_callback())
     
     try:
+        # Initialize project structure
+        project_structure = ProjectStructure(project_path)
+        project_structure.create_base_structure()
+        
+        # Move input files to organized structure
+        input_files = project_structure.move_input_files(video_path, transcript_path)
+        video_path = input_files["video"]  # Use the copied video file
+        
         checkpoint = load_checkpoint(project_path)
         unsilenced_video_path = video_path
 
@@ -186,12 +197,43 @@ def process_video(
             if transcribe_only:
                 return transcript
 
-            # Topic modeling remains the same
+            # Topic modeling and transcript processing
             topic_results = process_transcript(
                 transcript, project_path, num_topics, register=register, debug=False, progress_tracker=progress_tracker
             )
-
-            # Visual analysis is now scene-based
+            
+            # Save transcript files in organized structure
+            project_structure.save_transcript_files(transcript, topic_results)
+            
+            # NEW: Video segmentation based on topics
+            if progress_tracker:
+                progress_tracker.start_phase("Video Segmentation")
+            
+            topic_segments = topic_results.get("segments", [])
+            segmented_files = segment_video_by_topics(
+                unsilenced_video_path,
+                topic_segments,
+                project_structure,
+                progress_tracker
+            )
+            
+            # NEW: Segment-level multimodal analysis
+            if progress_tracker:
+                progress_tracker.start_phase("Segment Analysis")
+                
+            segment_processor = SegmentProcessor(progress_tracker)
+            processed_segments = segment_processor.process_segments(
+                unsilenced_video_path,
+                segmented_files,
+                transcript
+            )
+            
+            # Save segment results
+            segment_results = segment_processor.save_segment_results(
+                processed_segments, project_structure
+            )
+            
+            # Keep legacy visual analysis for backward compatibility
             analyzed_scenes = split_and_analyze_video(
                 unsilenced_video_path,
                 project_path,
@@ -202,21 +244,33 @@ def process_video(
                 progress_tracker,
             )
         
-            # Combine results
+            # Combine results with new structure
             results = {
                 "topics": topic_results.get("topics", []),
                 "segments": topic_results.get("segments", []),
                 "analyzed_scenes": analyzed_scenes,
+                "segmented_files": segmented_files,
+                "processed_segments": processed_segments,
+                "segment_results": segment_results,
+                "project_structure": {
+                    "input_files": input_files,
+                    "transcript_dir": project_structure.get_transcript_dir(),
+                    "segments_dir": project_structure.get_topic_segments_dir(),
+                    "final_analysis_dir": project_structure.get_final_analysis_dir()
+                }
             }
 
             results_path = os.path.join(project_path, "results.json")
             with open(results_path, "w") as f:
-                json.dump(results, f, indent=2)
+                json.dump(results, f, indent=2, default=str)
+                
+            # Clean up legacy files
+            project_structure.migrate_legacy_files()
 
             save_checkpoint(project_path, CHECKPOINTS["PROCESS_COMPLETE"], {"results": results})
         
             progress_tracker.start_phase("Process Complete")
-            progress_tracker.update_phase_progress(100.0, "Processing complete")
+            progress_tracker.update_phase_progress(100.0, "Processing complete - organized structure created")
             progress_tracker.complete_phase("Process Complete")
         else:
             results = checkpoint["data"]["results"]
@@ -227,5 +281,6 @@ def process_video(
         return results
     
     except Exception as e:
-        progress_tracker.fail_phase(f"Processing failed: {str(e)}")
+        if progress_tracker:
+            progress_tracker.fail_phase(f"Processing failed: {str(e)}")
         raise
