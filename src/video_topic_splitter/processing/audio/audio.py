@@ -1,167 +1,85 @@
-# processing/audio/audio.py
 #!/usr/bin/env python3
-
-"""Audio processing utilities."""
+"""Audio processing functionality for video topic splitter."""
 
 import logging
 import os
 import subprocess
-from contextlib import contextmanager
 
 import ffmpeg
-from moviepy.editor import VideoFileClip
-from pydub import AudioSegment
-from unsilence import Unsilence
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logger = logging.getLogger(__name__)
 
 
-def convert_to_mono_and_resample(input_file, output_file, sample_rate=16000):
-    """Converts audio to mono, resamples, applies gain control, and a high-pass filter."""
+def extract_audio(video_path: str, output_path: str):
+    """Extract audio from video file using ffmpeg-python."""
     try:
-        command = [
-            "ffmpeg",
-            "-i",
-            input_file,
-            "-af",
-            "volume=-3dB,highpass=f=200, acompressor=threshold=-20dB:ratio=2:attack=5:release=50",
-            "-ar",
-            str(sample_rate),
-            "-ac",
-            "1",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            output_file,
-        ]
-        result = subprocess.run(command, check=True, capture_output=True, text=True)
-        logging.info(
-            f"Audio converted to mono, resampled to {sample_rate}Hz, gain-adjusted, high-pass filtered, and saved to {output_file}"
+        (
+            ffmpeg.input(video_path)
+            .output(output_path, acodec="libopus", audio_bitrate="192k")
+            .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
         )
-        return {"status": "success", "message": result.stdout}
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Error during audio conversion: {e.stderr}")
-        return {"status": "error", "message": e.stderr}
-    except FileNotFoundError:
-        logging.critical(
-            f"ffmpeg not found. Please ensure it is installed and in your PATH."
+    except ffmpeg.Error as e:
+        logger.error("Error during audio extraction:")
+        logger.error(e.stderr.decode())
+        raise
+
+
+def convert_to_mono_and_resample(
+    input_path: str, output_path: str, sample_rate: int = 16000
+):
+    """Convert audio to mono and resample using ffmpeg-python."""
+    try:
+        (
+            ffmpeg.input(input_path)
+            .output(
+                output_path,
+                ac=1,  # Mono
+                ar=str(sample_rate),
+                acodec="aac",
+                audio_bitrate="128k",
+                # Apply a high-pass filter to remove low-frequency noise
+                af="highpass=f=200",
+            )
+            .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
         )
-        return {"status": "error", "message": "ffmpeg not found"}
-    except Exception as e:
-        logging.exception(f"An unexpected error occurred during audio conversion: {e}")
-        return {"status": "error", "message": str(e)}
+        return {"status": "success", "message": "Audio converted successfully."}
+    except ffmpeg.Error as e:
+        logger.error("Error during audio conversion:")
+        logger.error(e.stderr.decode())
+        return {"status": "error", "message": e.stderr.decode()}
 
 
-def normalize_audio(input_file, output_file, lowpass_freq=6000, highpass_freq=100):
-    """Normalizes audio using ffmpeg-normalize, then re-encodes to AAC."""
-    output_ext = os.path.splitext(output_file)[1].lower()
-
+def normalize_audio(input_path: str, output_path: str) -> dict:
+    """Normalize audio volume using ffmpeg-normalize."""
     try:
         command = [
             "ffmpeg-normalize",
-            "-pr",
-            "-tp",
-            "-9.0",
-            "-nt",
-            "rms",
-            input_file,
-            "-prf",
-            f"volume=-3dB,highpass=f={highpass_freq}",
-            "-prf",
-            "dynaudnorm=p=0.4:s=15",
-            "-pof",
-            f"lowpass=f={lowpass_freq}",
-            "-ar",
-            "48000",
+            input_path,
+            "-o",
+            output_path,
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-f",
         ]
-
-        # Add codec settings based on output format
-        if output_ext in [".mp4", ".m4a"]:
-            command.extend(
-                [
-                    "-c:a",
-                    "libopus",
-                ]
-            )
-        else:
-            command.extend(
-                [
-                    "-c:a",
-                    "pcm_s16le",
-                ]
-            )
-
-        command.extend(
-            [
-                "--keep-loudness-range-target",
-                "-o",
-                output_file,
-            ]
-        )
-        result = subprocess.run(command, check=True, capture_output=True, text=True)
-        logging.info(f"Audio normalized and saved to {output_file}")
-        return {"status": "success", "message": result.stdout}
+        subprocess.run(command, check=True, capture_output=True, text=True)
+        return {"status": "success", "message": "Audio normalized successfully."}
     except subprocess.CalledProcessError as e:
-        logging.error(f"Error during audio normalization: {e.stderr}")
+        logger.error(f"ffmpeg-normalize failed: {e.stderr}")
+        return {"status": "error", "message": e.stderr}
+
+
+def remove_silence(input_path: str, output_path: str) -> dict:
+    """Remove silent parts of a video/audio file using the unsilence tool."""
+    try:
+        command = ["unsilence", input_path, output_path, "-af", "1.5s", "-a", "0.1"]
+        subprocess.run(command, check=True, capture_output=True, text=True)
+        return {"status": "success", "message": "Silence removal complete."}
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Unsilence failed: {e.stderr}")
         return {"status": "error", "message": e.stderr}
     except FileNotFoundError:
-        logging.critical(
-            f"ffmpeg-normalize not found. Please ensure it is installed and in your PATH."
-        )
-        return {"status": "error", "message": "ffmpeg-normalize not found"}
-    except Exception as e:
-        logging.exception(
-            f"An unexpected error occurred during audio normalization: {e}"
-        )
-        return {"status": "error", "message": str(e)}
-
-
-@contextmanager
-def changed_working_directory(new_dir):
-    """Context manager to temporarily change the working directory."""
-    old_dir = os.getcwd()
-    try:
-        os.chdir(new_dir)
-        yield
-    finally:
-        os.chdir(old_dir)
-
-
-def remove_silence(input_file, output_file, audible_speed=2, silent_speed=8):
-    """Removes silence from audio using the unsilence library, creating an output directory."""
-    try:
-        # Get the directory for the output file (creating parent dirs if needed)
-        output_dir = os.path.dirname(output_file)
-        os.makedirs(
-            output_dir, exist_ok=True
-        )  # Create output directory if it doesn't exist
-
-        input_dir = os.path.dirname(input_file)
-        with changed_working_directory(input_dir):
-            u = Unsilence(os.path.basename(input_file))
-            u.detect_silence()
-            u.render_media(
-                os.path.basename(output_file),
-                audible_speed=audible_speed,
-                silent_speed=silent_speed,
-            )
-        logging.info(f"Silence adjusted (sped up) in audio and saved to {output_file}")
-        return {"status": "success", "message": ""}
-    except Exception as e:
-        logging.exception(f"Error during silence adjustment: {str(e)}")
-        return {"status": "error", "message": str(e)}
-
-
-def extract_audio(video_path, output_path):
-    """Extract audio from video file using ffmpeg-python, specifying AAC codec."""
-    logging.info("Extracting audio from video...")
-
-    video = VideoFileClip(video_path)  # Create VideoFileClip instance here
-
-    video.audio.write_audiofile(output_path, codec="opus", fps=48000)
-
-    logging.info(f"Audio extracted and saved to {output_path}")
+        msg = "Unsilence command not found. Please ensure it is installed and in your PATH."
+        logger.error(msg)
+        return {"status": "error", "message": msg}

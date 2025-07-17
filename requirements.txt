@@ -15,8 +15,5 @@ opencv-python
 scenedetect
 imagehash
 ffmpeg-python
-
-# For audio processing
 ffmpeg-normalize
 unsilence
-pyaudio

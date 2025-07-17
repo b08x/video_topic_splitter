@@ -24,9 +24,7 @@ setup(
         "openai>=1.12.0",
         "google-generativeai>=0.4.3",
         "requests>=2.31.0",
-        "pydub>=0.25.1",
-        "moviepy>=1.0.3",
-        "pyaudio",
+        
         "scenedetect[opencv]>=0.6.2",
         "imagehash>=4.3.1",
         "ffmpeg-python>=0.2.0",
