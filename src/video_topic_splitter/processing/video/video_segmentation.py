@@ -241,6 +241,7 @@ def align_timestamps_to_keyframes(
             "ffprobe",
             "-v", "error",
             "-select_streams", "v:0",
+            "-skip_frame", "nokey",
             "-show_entries", "frame=pkt_pts_time,pict_type",
             "-of", "csv=p=0",
             video_path
