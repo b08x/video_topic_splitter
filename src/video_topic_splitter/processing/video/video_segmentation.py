@@ -303,15 +303,225 @@ def _find_nearest_keyframe(
     return target_time
 
 
+def extract_frames_at_timestamps(
+    video_path: str,
+    timestamps: List[float],
+    output_dir: str,
+    output_template: str = "frame_%04d.jpg",
+    format: str = "jpg",
+    quality: int = 90
+) -> List[str]:
+    """
+    Extract frames from a video at specific timestamps using enhanced dual-method approach.
+    
+    Args:
+        video_path: Path to the video file
+        timestamps: List of timestamps in seconds
+        output_dir: Directory to save extracted frames
+        output_template: Filename template for output frames
+        format: Output image format (jpg, png)
+        quality: Compression quality for JPEG (0-100)
+        
+    Returns:
+        List of successfully extracted frame paths
+    """
+    if not os.path.exists(video_path):
+        logger.error(f"Video file not found: {video_path}")
+        return []
+        
+    os.makedirs(output_dir, exist_ok=True)
+    
+    try:
+        # Try using FFmpeg for more efficient extraction
+        return _extract_frames_ffmpeg(
+            video_path, timestamps, output_dir, output_template, format, quality
+        )
+    except Exception as e:
+        logger.warning(f"FFmpeg extraction failed: {e}. Falling back to OpenCV.")
+        return _extract_frames_opencv(
+            video_path, timestamps, output_dir, output_template, format, quality
+        )
+
+
+def _extract_frames_ffmpeg(
+    video_path: str,
+    timestamps: List[float],
+    output_dir: str,
+    output_template: str,
+    format: str,
+    quality: int
+) -> List[str]:
+    """Extract frames using FFmpeg (more efficient for specific timestamps)."""
+    frame_paths = []
+    
+    for i, timestamp in enumerate(timestamps):
+        output_path = os.path.join(output_dir, output_template.replace('%04d', f'{i:04d}'))
+        
+        # Ensure the output path has the correct extension
+        if not output_path.lower().endswith(f'.{format.lower()}'):
+            base, _ = os.path.splitext(output_path)
+            output_path = f"{base}.{format.lower()}"
+            
+        # Build FFmpeg command
+        cmd = [
+            'ffmpeg',
+            '-ss', str(timestamp),  # Seek to timestamp
+            '-i', video_path,       # Input file
+            '-frames:v', '1',       # Extract one frame
+            '-q:v', str(min(31, 31 - (quality // 3))),  # Quality (FFmpeg scale: 2-31, lower is better)
+            '-y',                   # Overwrite output
+            output_path
+        ]
+        
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+            if os.path.exists(output_path):
+                frame_paths.append(output_path)
+                logger.debug(f"Extracted frame at {timestamp:.1f}s: {output_path}")
+            else:
+                logger.warning(f"FFmpeg did not produce output file at {output_path}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"FFmpeg error for timestamp {timestamp}: {e.stderr.decode() if e.stderr else str(e)}")
+            
+    return frame_paths
+
+
+def _extract_frames_opencv(
+    video_path: str,
+    timestamps: List[float],
+    output_dir: str,
+    output_template: str,
+    format: str,
+    quality: int
+) -> List[str]:
+    """Extract frames using OpenCV (fallback method)."""
+    import cv2
+    
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        logger.error(f"Could not open video: {video_path}")
+        return []
+        
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps <= 0:
+        logger.warning(f"Invalid FPS value: {fps}. Using default of 30.")
+        fps = 30
+        
+    frame_paths = []
+    
+    for i, timestamp in enumerate(timestamps):
+        # Convert timestamp to frame number
+        frame_num = int(timestamp * fps)
+        
+        # Set position to the frame
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+        
+        # Read the frame
+        ret, frame = cap.read()
+        if not ret:
+            logger.warning(f"Failed to read frame at timestamp {timestamp}s")
+            continue
+            
+        # Save the frame
+        output_path = os.path.join(output_dir, output_template.replace('%04d', f'{i:04d}'))
+        
+        # Ensure the output path has the correct extension
+        if not output_path.lower().endswith(f'.{format.lower()}'):
+            base, _ = os.path.splitext(output_path)
+            output_path = f"{base}.{format.lower()}"
+            
+        # Set compression parameters
+        if format.lower() == 'jpg' or format.lower() == 'jpeg':
+            params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+        elif format.lower() == 'png':
+            params = [cv2.IMWRITE_PNG_COMPRESSION, min(9, 9 - (quality // 10))]
+        else:
+            params = []
+            
+        # Save the frame
+        success = cv2.imwrite(output_path, frame, params)
+        
+        if success and os.path.exists(output_path):
+            frame_paths.append(output_path)
+            logger.debug(f"Extracted frame at {timestamp:.1f}s: {output_path}")
+        else:
+            logger.warning(f"Failed to save frame to {output_path}")
+            
+    cap.release()
+    return frame_paths
+
+
+def extract_scene_keyframes(
+    video_path: str,
+    scene_boundaries: List[Tuple[float, float]],
+    output_dir: str,
+    frames_per_scene: int = 1,
+    format: str = "jpg",
+    quality: int = 90
+) -> Dict[int, List[str]]:
+    """
+    Extract representative keyframes from each scene using enhanced extraction.
+    
+    Args:
+        video_path: Path to the video file
+        scene_boundaries: List of (start_time, end_time) tuples in seconds
+        output_dir: Directory to save extracted frames
+        frames_per_scene: Number of frames to extract per scene
+        format: Output image format (jpg, png)
+        quality: Compression quality for JPEG (0-100)
+        
+    Returns:
+        Dictionary mapping scene index to list of extracted frame paths
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    scene_frames = {}
+    
+    for i, (start_time, end_time) in enumerate(scene_boundaries):
+        scene_duration = end_time - start_time
+        scene_dir = os.path.join(output_dir, f"scene_{i}")
+        os.makedirs(scene_dir, exist_ok=True)
+        
+        # Calculate timestamps for this scene
+        if frames_per_scene == 1:
+            # Just take the middle frame
+            timestamps = [start_time + (scene_duration / 2)]
+        else:
+            # Distribute frames evenly
+            timestamps = [
+                start_time + (j * scene_duration / (frames_per_scene - 1))
+                for j in range(frames_per_scene)
+            ]
+            # Ensure we don't go beyond the end time
+            timestamps = [min(t, end_time - 0.1) for t in timestamps]
+        
+        # Extract frames using enhanced method
+        frame_paths = extract_frames_at_timestamps(
+            video_path=video_path,
+            timestamps=timestamps,
+            output_dir=scene_dir,
+            output_template=f"frame_%04d.{format}",
+            format=format,
+            quality=quality
+        )
+        
+        if frame_paths:
+            scene_frames[i] = frame_paths
+        
+    return scene_frames
+
+
 def extract_segment_frames(
     video_path: str,
     frames_dir: str,
     start_time: float,
     end_time: float,
-    num_frames: int = 5
+    num_frames: int = 5,
+    format: str = "jpg",
+    quality: int = 90
 ) -> List[str]:
     """
-    Extract frames from a video segment for visual analysis.
+    Extract frames from a video segment for visual analysis (enhanced version).
     
     Args:
         video_path: Path to input video
@@ -319,6 +529,8 @@ def extract_segment_frames(
         start_time: Segment start time
         end_time: Segment end time
         num_frames: Number of frames to extract
+        format: Output image format (jpg, png)
+        quality: Compression quality for JPEG (0-100)
         
     Returns:
         List of frame file paths
@@ -333,38 +545,26 @@ def extract_segment_frames(
         
         # Calculate frame extraction times
         if num_frames == 1:
-            frame_times = [start_time + duration / 2]  # Middle frame
+            timestamps = [start_time + duration / 2]  # Middle frame
         else:
-            frame_times = [
+            timestamps = [
                 start_time + (i * duration / (num_frames - 1))
                 for i in range(num_frames)
             ]
         
-        frame_paths = []
-        for i, frame_time in enumerate(frame_times):
-            frame_path = os.path.join(frames_dir, f"frame_{i:03d}.jpg")
-            
-            command = [
-                "ffmpeg",
-                "-i", video_path,
-                "-ss", str(frame_time),
-                "-vframes", "1",
-                "-q:v", "2",  # High quality
-                "-y",
-                frame_path
-            ]
-            
-            result = subprocess.run(command, check=True, capture_output=True, text=True)
-            if os.path.exists(frame_path):
-                frame_paths.append(frame_path)
-                logger.debug(f"Extracted frame at {frame_time:.1f}s: {frame_path}")
+        # Use enhanced extraction method
+        frame_paths = extract_frames_at_timestamps(
+            video_path=video_path,
+            timestamps=timestamps,
+            output_dir=frames_dir,
+            output_template=f"frame_%04d.{format}",
+            format=format,
+            quality=quality
+        )
         
         logger.info(f"Extracted {len(frame_paths)} frames from segment")
         return frame_paths
         
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Error extracting frames: {e.stderr}")
-        return []
     except Exception as e:
         logger.error(f"Unexpected error in frame extraction: {e}")
         return []

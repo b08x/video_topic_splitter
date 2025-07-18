@@ -239,12 +239,39 @@ The enhanced analysis provides structured data including:
 ### Backward Compatibility
 The system maintains full backward compatibility while adding enhanced analysis as optional structured data under `enhanced_analysis` key.
 
+## Enhanced Frame Extraction (Latest Update)
+
+The frame extraction system has been significantly upgraded with vtsV3 capabilities:
+
+### Key Improvements
+- **Dual-Method Extraction**: FFmpeg (primary) with OpenCV fallback for maximum reliability
+- **Enhanced Scene Detection**: Multi-detector approach using ContentDetector + AdaptiveDetector fallback
+- **Smart Short Video Handling**: Intelligent detection and processing for videos ≤60 seconds
+- **Configurable Quality**: JPEG quality control (0-100) and PNG compression options
+- **Format Flexibility**: Support for JPG and PNG with optimal compression settings
+- **Precise Timestamp Extraction**: Exact frame extraction at specified timestamps
+- **Error Resilience**: Automatic fallback between extraction methods
+
+### Advanced Scene Detection Features
+- **ContentDetector**: Primary scene detection with configurable threshold
+- **AdaptiveDetector**: Fallback detector for challenging content
+- **Short Video Optimization**: Creates single scene for brief clips when no cuts detected
+- **Comprehensive CSV Export**: Detailed scene metadata with frame numbers and timing
+- **Duplicate Frame Filtering**: ImageHash-based perceptual duplicate detection
+
+### Technical Enhancements
+- **FFmpeg Integration**: Direct FFmpeg commands for efficient frame extraction
+- **OpenCV Fallback**: Reliable secondary method for edge cases
+- **Quality Control**: Configurable compression and format optimization
+- **Memory Efficiency**: Optimized processing for large video files
+
 ## Recent Changes (v0.2.0)
 
 - **Major Refactoring**: Added organized directory structure with topic-based segments
 - **Enhanced NLP**: Integrated spaCy for sophisticated transcript analysis with NER, lemmatization, and dependency parsing
+- **Enhanced Frame Extraction**: Integrated dual-method extraction with quality control and multi-detector scene detection
 - **Video Segmentation**: Implemented FFmpeg-based video/audio cutting with keyframe alignment
-- **Multimodal Analysis**: Created comprehensive segment analysis pipeline
+- **Multimodal Analysis**: Created comprehensive segment analysis pipeline with enhanced frame processing
 - **Progress Tracking**: Enhanced progress system with hierarchical reporting
 - **Error Handling**: Improved error handling and retry logic throughout
 - **Logging**: Added comprehensive logging across all components

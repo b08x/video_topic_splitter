@@ -66,11 +66,11 @@ def split_and_analyze_video(
     scenes_dir = os.path.join(project_path, "scenes")
     os.makedirs(scenes_dir, exist_ok=True)
 
-    # Use the new function to get scenes and unique frames
+    # Use the enhanced function to get scenes and unique frames
     if progress_tracker:
         progress_tracker.update_phase_progress(10.0, "Extracting scenes and unique frames...")
     scene_info = extract_unique_frames_from_scenes(
-        input_video, scenes_dir, frames_per_scene
+        input_video, scenes_dir, frames_per_scene, use_enhanced_detection=True
     )
 
     if not scene_info:

@@ -201,9 +201,10 @@ class MultimodalAnalyzer:
     ) -> Dict[str, Any]:
         """Analyze visual content by extracting and analyzing frames."""
         try:
-            # Extract frames from the segment
+            # Extract frames from the segment using enhanced extraction
             frame_paths = extract_segment_frames(
-                video_path, frames_dir, start_time, end_time, num_frames=3
+                video_path, frames_dir, start_time, end_time, 
+                num_frames=3, format="jpg", quality=90
             )
             
             if not frame_paths:
