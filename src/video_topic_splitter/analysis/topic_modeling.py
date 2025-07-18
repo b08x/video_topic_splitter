@@ -61,7 +61,19 @@ class TopicAnalyzer:
             logger.debug("Debug mode enabled for TopicAnalyzer")
 
     def _parse_json_response(self, content: str) -> Dict:
-        """Parse JSON from OpenRouter response with multiple fallback strategies."""
+        """
+        Parse a JSON response from a string with multiple fallback strategies.
+
+        This method attempts to parse a JSON object from a string that may
+        contain other text, such as markdown code blocks. It tries several
+        strategies to extract and parse the JSON.
+
+        Args:
+            content: The string content which is expected to contain a JSON object.
+
+        Returns:
+            A dictionary parsed from the JSON, or None if parsing fails.
+        """
         # Clean the content
         content = content.strip()
         
@@ -126,7 +138,18 @@ class TopicAnalyzer:
         return None
     
     def _validate_response(self, response: Dict) -> Dict:
-        """Validate and normalize the response from OpenRouter."""
+        """
+        Validate and normalize the parsed response from the topic analysis API.
+
+        This ensures that the response dictionary has the required keys with
+        valid data types and values, providing defaults where necessary.
+
+        Args:
+            response: The parsed dictionary from the API response.
+
+        Returns:
+            A validated and normalized dictionary.
+        """
         # Ensure required fields exist with defaults
         validated = {
             "topic": response.get("topic", "Uncategorized"),
@@ -159,7 +182,21 @@ class TopicAnalyzer:
         return validated
     
     async def _get_topic_from_openrouter(self, text_chunk: str, max_retries: int = 3) -> Dict:
-        """Get topic and keywords from OpenRouter API with retry logic."""
+        """
+        Get topic and keywords from the OpenRouter API for a given text chunk.
+
+        This method sends a request to the OpenRouter API to analyze the text
+        and returns a structured response with the topic, keywords, and other
+        metadata. It includes retry logic with exponential backoff to handle
+        transient API errors.
+
+        Args:
+            text_chunk: The text to be analyzed.
+            max_retries: The maximum number of times to retry the API call.
+
+        Returns:
+            A dictionary containing the topic analysis results from the API.
+        """
         prompt = get_topic_prompt(self.register, text_chunk)
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
@@ -218,7 +255,20 @@ class TopicAnalyzer:
         return self._validate_response({"topic": "Unknown Error", "keywords": [], "relationship": "NEW", "confidence": 0})
 
     async def analyze_segments(self, segments: List[Dict]) -> List[Dict]:
-        """Analyze each text segment to determine its topic."""
+        """
+        Analyze each text segment to determine its topic using the OpenRouter API.
+
+        This method asynchronously processes a list of text segments, calling
+        the topic analysis API for each one.
+
+        Args:
+            segments: A list of dictionaries, where each dictionary represents
+                a text segment with a 'content' key.
+
+        Returns:
+            The list of segments, updated with topic, keywords, and other
+            analysis metadata.
+        """
         # Create progress tracker for segment analysis
         segment_descriptions = [f"Segment {i+1}: {seg['content'][:50]}..." for i, seg in enumerate(segments)]
         sub_tracker = None
@@ -248,7 +298,20 @@ class TopicAnalyzer:
         return segments
 
     def segment_by_topic(self, analyzed_segments: List[Dict]) -> List[Dict]:
-        """Group continuous segments with the same topic."""
+        """
+        Group consecutive segments that share the same topic into larger segments.
+
+        This method iterates through the analyzed segments and merges adjacent
+        segments if their assigned topic is the same.
+
+        Args:
+            analyzed_segments: A list of segments that have been analyzed for
+                their topics.
+
+        Returns:
+            A new list of segments, where consecutive segments with the same
+            topic have been merged.
+        """
         if not analyzed_segments:
             return []
 

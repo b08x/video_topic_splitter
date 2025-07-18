@@ -12,7 +12,20 @@ logger = logging.getLogger(__name__)
 
 
 def extract_audio(video_path: str, output_path: str, progress_tracker: ProgressTracker = None):
-    """Extract audio from video file using ffmpeg-python."""
+    """
+    Extract the audio track from a video file and save it as an Opus audio file.
+
+    This function uses ffmpeg to perform the extraction, which is efficient and
+    handles a wide variety of video formats.
+
+    Args:
+        video_path: The path to the input video file.
+        output_path: The path where the extracted audio file will be saved.
+        progress_tracker: An optional ProgressTracker instance to report progress.
+
+    Raises:
+        ffmpeg.Error: If ffmpeg encounters an error during extraction.
+    """
     if progress_tracker:
         progress_tracker.update_phase_progress(0.0, "Extracting audio from video...")
     
@@ -36,7 +49,21 @@ def extract_audio(video_path: str, output_path: str, progress_tracker: ProgressT
 def convert_to_mono_and_resample(
     input_path: str, output_path: str, sample_rate: int = 16000, progress_tracker: ProgressTracker = None
 ):
-    """Convert audio to mono and resample using ffmpeg-python."""
+    """
+    Convert an audio file to mono and resample it to a specific sample rate.
+
+    This is often a required preprocessing step for speech-to-text models.
+    It also applies a high-pass filter to remove low-frequency noise.
+
+    Args:
+        input_path: The path to the input audio file.
+        output_path: The path where the converted audio file will be saved.
+        sample_rate: The target sample rate in Hz.
+        progress_tracker: An optional ProgressTracker instance to report progress.
+
+    Returns:
+        A dictionary with the status of the conversion.
+    """
     if progress_tracker:
         progress_tracker.update_phase_progress(0.0, "Converting audio to mono and resampling...")
     
@@ -67,7 +94,20 @@ def convert_to_mono_and_resample(
 
 
 def normalize_audio(input_path: str, output_path: str, progress_tracker: ProgressTracker = None) -> dict:
-    """Normalize audio volume using ffmpeg-normalize."""
+    """
+    Normalize the volume of an audio file to a standard level.
+
+    This uses the `ffmpeg-normalize` utility to ensure consistent audio levels,
+    which can improve the quality of transcription.
+
+    Args:
+        input_path: The path to the input audio file.
+        output_path: The path where the normalized audio file will be saved.
+        progress_tracker: An optional ProgressTracker instance to report progress.
+
+    Returns:
+        A dictionary with the status of the normalization.
+    """
     if progress_tracker:
         progress_tracker.update_phase_progress(0.0, "Normalizing audio volume...")
     
@@ -96,7 +136,21 @@ def normalize_audio(input_path: str, output_path: str, progress_tracker: Progres
 
 
 def remove_silence(input_path: str, output_path: str, progress_tracker: ProgressTracker = None) -> dict:
-    """Remove silent parts of a video/audio file using the unsilence tool."""
+    """
+    Remove silent portions from an audio or video file.
+
+    This uses the `unsilence` command-line tool to detect and remove periods
+    of silence, which can help to create a more concise audio track for
+    analysis.
+
+    Args:
+        input_path: The path to the input audio or video file.
+        output_path: The path where the processed file will be saved.
+        progress_tracker: An optional ProgressTracker instance to report progress.
+
+    Returns:
+        A dictionary with the status of the silence removal process.
+    """
     if progress_tracker:
         progress_tracker.update_phase_progress(0.0, "Removing silence from audio...")
     

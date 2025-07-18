@@ -1,6 +1,13 @@
 # processing/video/video_analysis.py
 #!/usr/bin/env python3
-"""Video analysis and segmentation functionality."""
+"""
+Video analysis and segmentation functionality.
+
+NOTE: The functions originally in this module have been refactored and moved
+to other parts of the project, primarily to `analysis.visual_analysis` and
+`processing.video.video_segmentation`. This file is retained for git history
+but is not actively used.
+"""
 
 
 import json

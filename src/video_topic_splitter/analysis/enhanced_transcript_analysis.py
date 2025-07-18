@@ -132,7 +132,16 @@ class EnhancedTranscriptAnalyzer:
             return {"error": str(e)}
     
     def _extract_text_content(self, transcript_segment: List[Dict[str, Any]]) -> str:
-        """Extract and clean text content from transcript segment."""
+        """
+        Extract and clean text content from a list of transcript items.
+
+        Args:
+            transcript_segment: A list of transcript items, where each item is a
+                dictionary that should contain a 'content' or 'text' key.
+
+        Returns:
+            A single string with the combined and cleaned text content.
+        """
         text_parts = []
         
         for item in transcript_segment:
@@ -147,7 +156,19 @@ class EnhancedTranscriptAnalyzer:
         doc, 
         transcript_segment: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
-        """Get basic metrics using spaCy's linguistic analysis."""
+        """
+        Calculate basic metrics for the transcript segment.
+
+        This uses spaCy's tokenization and sentence segmentation for accuracy.
+
+        Args:
+            doc: The spaCy Doc object for the transcript text.
+            transcript_segment: The original transcript segment to calculate duration.
+
+        Returns:
+            A dictionary with basic metrics like token count, sentence count,
+            duration, speech rate, and average sentence length.
+        """
         # Calculate duration from transcript timing
         total_duration = sum([
             item.get("end", 0) - item.get("start", 0)
@@ -170,7 +191,21 @@ class EnhancedTranscriptAnalyzer:
         }
     
     def _extract_key_phrases(self, doc) -> Dict[str, Any]:
-        """Extract key phrases using spaCy's noun chunking and lemmatization."""
+        """
+        Extract key phrases, lemmas, and technical terms from the text.
+
+        This method uses multiple strategies:
+        - Noun chunks for multi-word phrases.
+        - Content lemmas for important single words.
+        - Technical terms based on POS tagging and patterns.
+
+        Args:
+            doc: The spaCy Doc object for the transcript text.
+
+        Returns:
+            A dictionary containing the most common noun phrases, key lemmas,
+            and technical terms.
+        """
         # Method 1: Noun chunks (multi-word phrases)
         noun_chunks = [
             chunk.text.lower().strip() 
@@ -211,7 +246,16 @@ class EnhancedTranscriptAnalyzer:
         }
     
     def _extract_named_entities(self, doc) -> Dict[str, Any]:
-        """Extract and categorize named entities."""
+        """
+        Extract and categorize named entities from the text using spaCy's NER.
+
+        Args:
+            doc: The spaCy Doc object for the transcript text.
+
+        Returns:
+            A dictionary containing the extracted entities, categorized by
+            label, along with summary statistics.
+        """
         entities = defaultdict(list)
         
         # Standard spaCy entity labels we're interested in
@@ -254,7 +298,16 @@ class EnhancedTranscriptAnalyzer:
         }
     
     def _analyze_linguistic_features(self, doc) -> Dict[str, Any]:
-        """Analyze linguistic features using spaCy's POS tagging and parsing."""
+        """
+        Analyze linguistic features like POS distribution and dependency relations.
+
+        Args:
+            doc: The spaCy Doc object for the transcript text.
+
+        Returns:
+            A dictionary with analysis of part-of-speech, dependency relations,
+            and morphological features.
+        """
         # Part-of-speech distribution
         pos_counts = Counter(token.pos_ for token in doc if not token.is_space)
         
@@ -277,7 +330,18 @@ class EnhancedTranscriptAnalyzer:
         }
     
     def _extract_actions_and_relationships(self, doc) -> Dict[str, Any]:
-        """Extract subject-verb-object relationships and key actions."""
+        """
+        Extract Subject-Verb-Object (SVO) triplets and key actions.
+
+        This helps in understanding the main actions and relationships described
+        in the text.
+
+        Args:
+            doc: The spaCy Doc object for the transcript text.
+
+        Returns:
+            A dictionary containing SVO triplets and a list of key actions.
+        """
         svo_triplets = []
         key_actions = []
         
@@ -323,7 +387,15 @@ class EnhancedTranscriptAnalyzer:
         }
     
     def _extract_technical_elements(self, doc) -> List[str]:
-        """Extract technical elements and specialized vocabulary."""
+        """
+        Extract technical terms, acronyms, and other specialized vocabulary.
+
+        Args:
+            doc: The spaCy Doc object for the transcript text.
+
+        Returns:
+            A list of unique technical elements found in the text.
+        """
         technical_elements = set()
         
         # Technical patterns
@@ -354,7 +426,18 @@ class EnhancedTranscriptAnalyzer:
         return list(technical_elements)
     
     def _analyze_semantic_features(self, doc) -> Dict[str, Any]:
-        """Analyze semantic features using word vectors (if available)."""
+        """
+        Analyze semantic features like document coherence using word vectors.
+
+        This is only performed if the loaded spaCy model has word vectors.
+
+        Args:
+            doc: The spaCy Doc object for the transcript text.
+
+        Returns:
+            A dictionary with semantic analysis results, or an error if
+            vectors are not available.
+        """
         if not self.has_vectors:
             return {"error": "Word vectors not available in current spaCy model"}
         
@@ -381,7 +464,17 @@ class EnhancedTranscriptAnalyzer:
         }
     
     def _get_verb_phrase(self, verb_token) -> str:
-        """Extract the full verb phrase including auxiliaries and particles."""
+        """
+        Extract the full verb phrase associated with a verb token.
+
+        This includes auxiliaries, negations, and particles.
+
+        Args:
+            verb_token: The spaCy Token object for the verb.
+
+        Returns:
+            The reconstructed verb phrase as a string.
+        """
         phrase_tokens = [verb_token]
         
         # Add auxiliaries and particles
@@ -394,7 +487,15 @@ class EnhancedTranscriptAnalyzer:
         return " ".join(token.text for token in phrase_tokens)
     
     def _get_tense(self, verb_token) -> str:
-        """Determine the tense of a verb token."""
+        """
+        Determine the tense of a verb token using its morphological features.
+
+        Args:
+            verb_token: The spaCy Token object for the verb.
+
+        Returns:
+            The tense of the verb (e.g., 'past', 'present') or 'unknown'.
+        """
         if verb_token.morph:
             for feature in verb_token.morph:
                 if feature.startswith('Tense='):

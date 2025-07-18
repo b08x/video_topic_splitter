@@ -225,15 +225,21 @@ def align_timestamps_to_keyframes(
     tolerance: float = 0.1
 ) -> List[Tuple[float, float]]:
     """
-    Align timestamps to nearest keyframes for accurate segmentation.
-    
+    Align start and end timestamps to the nearest keyframes in the video.
+
+    This is crucial for creating clean video segments without visual artifacts,
+    as cutting a video at a non-keyframe can lead to corruption at the start
+    of the segment.
+
     Args:
-        video_path: Path to the input video file
-        timestamps: List of (start_time, end_time) tuples
-        tolerance: Maximum allowed time difference for adjustment
-        
+        video_path: Path to the input video file.
+        timestamps: A list of (start_time, end_time) tuples to be aligned.
+        tolerance: The maximum allowed time difference for a timestamp to be
+            snapped to a keyframe.
+
     Returns:
-        List of adjusted (start_time, end_time) tuples
+        A list of adjusted (start_time, end_time) tuples, aligned to
+        keyframes where possible.
     """
     try:
         # Get keyframe information using ffprobe
@@ -281,15 +287,18 @@ def _find_nearest_keyframe(
     tolerance: float
 ) -> float:
     """
-    Find the nearest keyframe time to the target time within tolerance.
-    
+    Find the nearest keyframe time to a target time within a given tolerance.
+
+    If a keyframe is found within the tolerance, its time is returned.
+    Otherwise, the original target time is returned.
+
     Args:
-        keyframe_times: List of keyframe times
-        target_time: Target time to find nearest keyframe for
-        tolerance: Maximum allowed time difference
-        
+        keyframe_times: A sorted list of keyframe times in seconds.
+        target_time: The target time to find the nearest keyframe for.
+        tolerance: The maximum allowed time difference.
+
     Returns:
-        Nearest keyframe time or original target_time if none found
+        The time of the nearest keyframe, or the original target_time.
     """
     if not keyframe_times:
         return target_time
@@ -352,7 +361,23 @@ def _extract_frames_ffmpeg(
     format: str,
     quality: int
 ) -> List[str]:
-    """Extract frames using FFmpeg (more efficient for specific timestamps)."""
+    """
+    Extract frames at specific timestamps using FFmpeg.
+
+    This method is generally more efficient than OpenCV for extracting a sparse
+    set of frames, as it can seek directly to the desired timestamps.
+
+    Args:
+        video_path: Path to the video file.
+        timestamps: A list of timestamps in seconds from which to extract frames.
+        output_dir: The directory where the extracted frames will be saved.
+        output_template: A template for the output filenames.
+        format: The output image format (e.g., 'jpg', 'png').
+        quality: The quality of the output image (0-100).
+
+    Returns:
+        A list of paths to the successfully extracted frames.
+    """
     frame_paths = []
     
     for i, timestamp in enumerate(timestamps):
@@ -395,7 +420,23 @@ def _extract_frames_opencv(
     format: str,
     quality: int
 ) -> List[str]:
-    """Extract frames using OpenCV (fallback method)."""
+    """
+    Extract frames at specific timestamps using OpenCV.
+
+    This method serves as a fallback if FFmpeg is not available or fails. It
+    decodes the video frame by frame to find the desired timestamps.
+
+    Args:
+        video_path: Path to the video file.
+        timestamps: A list of timestamps in seconds from which to extract frames.
+        output_dir: The directory where the extracted frames will be saved.
+        output_template: A template for the output filenames.
+        format: The output image format (e.g., 'jpg', 'png').
+        quality: The quality of the output image (0-100).
+
+    Returns:
+        A list of paths to the successfully extracted frames.
+    """
     import cv2
     
     cap = cv2.VideoCapture(video_path)
@@ -573,13 +614,18 @@ def extract_segment_frames(
 
 def validate_segment_files(segment_info: Dict[str, Any]) -> Dict[str, bool]:
     """
-    Validate that segment files were created successfully.
-    
+    Validate that the files for a video segment were created successfully.
+
+    This function checks for the existence and non-zero size of the video and
+    audio files for a given segment.
+
     Args:
-        segment_info: Segment information dictionary
-        
+        segment_info: A dictionary containing the paths to the segment's
+            files.
+
     Returns:
-        Dictionary with validation results
+        A dictionary with boolean flags and file sizes, indicating the
+        validity of the segment's files.
     """
     validation = {
         "video_exists": False,

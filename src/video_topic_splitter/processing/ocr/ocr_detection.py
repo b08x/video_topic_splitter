@@ -13,7 +13,19 @@ logger = logging.getLogger(__name__)
 
 
 def preprocess_frame(frame):
-    """Preprocess frame for better OCR results."""
+    """
+    Preprocess a video frame to improve OCR accuracy.
+
+    This function applies a series of image processing techniques, including
+    converting the frame to grayscale, applying a binary threshold to create a
+    black-and-white image, and removing noise.
+
+    Args:
+        frame: The input video frame as a NumPy array.
+
+    Returns:
+        The preprocessed frame as a NumPy array.
+    """
     # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
@@ -27,7 +39,20 @@ def preprocess_frame(frame):
 
 
 def detect_text_regions(frame):
-    """Detect potential text regions in the frame."""
+    """
+    Detect potential regions of text within a video frame.
+
+    This uses the MSER (Maximally Stable Extremal Regions) algorithm to find
+    areas in the frame that are likely to contain text, and filters them based
+    on their size and aspect ratio.
+
+    Args:
+        frame: The input video frame as a NumPy array.
+
+    Returns:
+        A list of tuples, where each tuple represents the bounding box
+        (x, y, w, h) of a potential text region.
+    """
     # Convert to grayscale if not already
     if len(frame.shape) == 3:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -51,7 +76,22 @@ def detect_text_regions(frame):
 
 
 def perform_ocr(frame, regions=None, lang="eng"):
-    """Perform OCR on specific regions or entire frame."""
+    """
+    Perform OCR on a frame, either on the entire frame or on specific regions.
+
+    This function uses the Tesseract OCR engine to extract text from the given
+    frame. If regions are provided, it performs OCR on each region
+    individually for better accuracy.
+
+    Args:
+        frame: The input frame, either as a NumPy array or a PIL Image.
+        regions: An optional list of bounding boxes for text regions.
+        lang: The language to be used for OCR.
+
+    Returns:
+        A list of dictionaries, where each dictionary contains the detected
+        text, its bounding box, and a confidence score.
+    """
     try:
         # Convert frame to PIL Image for Tesseract
         if isinstance(frame, np.ndarray):
@@ -96,7 +136,22 @@ def perform_ocr(frame, regions=None, lang="eng"):
 
 
 def detect_software_names(frame, software_list, lang="eng"):
-    """Detect software application names in a video frame."""
+    """
+    Detect specified software application names within a video frame.
+
+    This function orchestrates the entire OCR process: it preprocesses the
+    frame, detects text regions, performs OCR, and then matches the detected
+    text against a provided list of software names.
+
+    Args:
+        frame: The input video frame as a NumPy array.
+        software_list: A list of software names to search for.
+        lang: The language to be used for OCR.
+
+    Returns:
+        A list of dictionaries, where each dictionary represents a detected
+        software name and includes details about the match.
+    """
     # Preprocess the frame
     processed_frame = preprocess_frame(frame)
 

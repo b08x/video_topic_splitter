@@ -13,7 +13,15 @@ from .api.openai import transcribe_with_whisper
 
 
 def time_to_seconds(time_str: str) -> float:
-    """Convert timestamp (HH:MM:SS,ms) to seconds."""
+    """
+    Convert a timestamp string (HH:MM:SS,ms or MM:SS,ms) to seconds.
+
+    Args:
+        time_str: The timestamp string.
+
+    Returns:
+        The total number of seconds as a float.
+    """
     parts = time_str.replace(",", ".").split(":")
     if len(parts) == 3:
         h, m, s = parts
@@ -25,7 +33,19 @@ def time_to_seconds(time_str: str) -> float:
 
 
 def parse_srt(content: str) -> List[Dict]:
-    """Parse SRT file content into a standard transcript format."""
+    """
+    Parse the content of an SRT subtitle file into a standard transcript format.
+
+    This function uses a regular expression to robustly parse SRT segments,
+    including their index, start and end times, and text content.
+
+    Args:
+        content: The string content of the SRT file.
+
+    Returns:
+        A list of dictionaries, where each dictionary represents a transcript
+        segment with 'start', 'end', and 'content' keys.
+    """
     transcript = []
     # Regex to capture segment index, start/end times, and text
     segment_pattern = re.compile(
@@ -43,7 +63,19 @@ def parse_srt(content: str) -> List[Dict]:
 
 
 def parse_vtt(content: str) -> List[Dict]:
-    """Parse VTT file content into a standard transcript format."""
+    """
+    Parse the content of a VTT subtitle file into a standard transcript format.
+
+    This function handles the VTT format, skipping metadata headers and parsing
+    each cue to extract start time, end time, and text content.
+
+    Args:
+        content: The string content of the VTT file.
+
+    Returns:
+        A list of dictionaries, where each dictionary represents a transcript
+        segment with 'start', 'end', and 'content' keys.
+    """
     transcript = []
     # VTT can have metadata headers, so we skip to the first cue
     cues = content.split("\n\n")
@@ -133,7 +165,16 @@ def get_transcript_from_audio(audio_path: str, project_path: str) -> List[Dict]:
 
 
 def save_transcription(transcription: dict, project_path: str):
-    """Save raw transcription to JSON file."""
+    """
+    Save the raw transcription response from the API to a JSON file.
+
+    This is useful for debugging and for later reprocessing of the raw
+    transcription data without needing to call the API again.
+
+    Args:
+        transcription: The raw JSON response from the transcription API.
+        project_path: The path to the project directory.
+    """
     transcription_path = os.path.join(project_path, "transcription.json")
     with open(transcription_path, "w") as f:
         json.dump(transcription, f, indent=2)
@@ -141,7 +182,13 @@ def save_transcription(transcription: dict, project_path: str):
 
 
 def save_transcript(transcript: List[Dict], project_path: str):
-    """Save processed transcript to JSON file."""
+    """
+    Save the processed transcript to a JSON file in the standard format.
+
+    Args:
+        transcript: A list of segment dictionaries in the standard format.
+        project_path: The path to the project directory.
+    """
     transcript_path = os.path.join(project_path, "transcript.json")
     with open(transcript_path, "w") as f:
         json.dump(transcript, f, indent=2)
@@ -149,7 +196,17 @@ def save_transcript(transcript: List[Dict], project_path: str):
 
 
 def seconds_to_timestamp(seconds: float, separator: str = ",") -> str:
-    """Convert seconds to a SRT/VTT timestamp format."""
+    """
+    Convert a duration in seconds to a standard SRT/VTT timestamp format.
+
+    Args:
+        seconds: The duration in seconds.
+        separator: The separator to use between seconds and milliseconds
+            ("," for SRT, "." for VTT).
+
+    Returns:
+        A formatted timestamp string (HH:MM:SS,ms or HH:MM:SS.ms).
+    """
     h = int(seconds / 3600)
     m = int((seconds % 3600) / 60)
     s = int(seconds % 60)
@@ -158,7 +215,14 @@ def seconds_to_timestamp(seconds: float, separator: str = ",") -> str:
 
 
 def save_transcript_to_srt(transcript: List[Dict], project_path: str):
-    """Save the transcript in SRT format."""
+    """
+    Save a transcript in the SRT subtitle format.
+
+    Args:
+        transcript: A list of segment dictionaries in the standard format.
+        project_path: The path to the project directory where the SRT file
+            will be saved.
+    """
     srt_path = os.path.join(project_path, "transcript.srt")
     with open(srt_path, "w", encoding="utf-8") as f:
         for i, segment in enumerate(transcript, 1):
@@ -171,7 +235,14 @@ def save_transcript_to_srt(transcript: List[Dict], project_path: str):
 
 
 def save_transcript_to_vtt(transcript: List[Dict], project_path: str):
-    """Save the transcript in VTT format."""
+    """
+    Save a transcript in the VTT subtitle format.
+
+    Args:
+        transcript: A list of segment dictionaries in the standard format.
+        project_path: The path to the project directory where the VTT file
+            will be saved.
+    """
     vtt_path = os.path.join(project_path, "transcript.vtt")
     with open(vtt_path, "w", encoding="utf-8") as f:
         f.write("WEBVTT\n\n")

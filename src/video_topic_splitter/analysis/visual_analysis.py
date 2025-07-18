@@ -25,7 +25,25 @@ def analyze_screenshot(
     ocr_lang="eng",
     context=None,
 ):
-    """Analyze a single screenshot for software applications using OCR."""
+    """
+    Analyze a single screenshot for software applications using OCR and Gemini.
+
+    This function takes a path to an image, performs OCR to detect software
+    names, and then uses Gemini to provide a more detailed analysis of the
+    visual content.
+
+    Args:
+        image_path: Path to the screenshot image file.
+        project_path: Path to the project directory for saving any artifacts.
+        software_list: Optional list of software names to detect via OCR.
+        ocr_lang: Language for OCR detection.
+        context: Optional context to provide to the Gemini analysis.
+
+    Returns:
+        A dictionary containing the OCR matches and the Gemini analysis.
+        (Note: The implementation of the return value is not complete in the
+        provided code.)
+    """
     # ... (existing screenshot analysis logic remains the same)
 
 

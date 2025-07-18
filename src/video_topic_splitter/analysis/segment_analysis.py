@@ -112,14 +112,21 @@ class SegmentProcessor:
         segment_info: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """
-        Extract transcript data for a specific segment based on timing.
-        
+        Extract the relevant transcript data for a specific video segment.
+
+        This method filters the full transcript to include only the items that
+        overlap with the given segment's time range. It also adjusts the
+        timing of the transcript items to be relative to the start of the
+        segment.
+
         Args:
-            transcript_data: Full transcript data
-            segment_info: Segment information with timing
-            
+            transcript_data: The full transcript data for the video.
+            segment_info: A dictionary containing the start and end times of
+                the segment.
+
         Returns:
-            Transcript segments for this time range
+            A list of transcript items that fall within the segment's
+            time range, with adjusted timing.
         """
         try:
             start_time = segment_info["start_time"]
@@ -152,13 +159,18 @@ class SegmentProcessor:
     
     def _validate_segment_files(self, segment_info: Dict[str, Any]) -> Dict[str, bool]:
         """
-        Validate that segment files exist and are valid.
-        
+        Validate that the generated files for a segment exist and are not empty.
+
+        This checks for the existence of the video segment file, audio file,
+        and the directory for frames.
+
         Args:
-            segment_info: Segment information
-            
+            segment_info: A dictionary containing the paths to the segment's
+                files.
+
         Returns:
-            Dictionary with validation results
+            A dictionary with boolean flags indicating the validity of each
+            file.
         """
         validation = {
             "video_exists": False,
@@ -202,13 +214,18 @@ class SegmentProcessor:
         processed_segments: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
-        Generate a timeline of all processed segments.
-        
+        Generate a structured timeline of all processed video segments.
+
+        This method compiles information from all processed segments into a
+        single timeline object that summarizes the topics, durations, key
+        insights, and technical elements for the entire video.
+
         Args:
-            processed_segments: List of processed segment analyses
-            
+            processed_segments: A list of analysis results for each segment.
+
         Returns:
-            Timeline data structure
+            A dictionary representing the complete timeline of the video,
+            with summaries by topic.
         """
         try:
             timeline = {
@@ -282,14 +299,18 @@ class SegmentProcessor:
         output_structure
     ) -> Dict[str, str]:
         """
-        Save all segment processing results.
-        
+        Save all segment processing results to the project directory.
+
+        This includes saving the generated timeline and a consolidated JSON
+        file with all detailed analysis results.
+
         Args:
-            processed_segments: List of processed segment analyses
-            output_structure: ProjectStructure instance
-            
+            processed_segments: A list of analysis results for each segment.
+            output_structure: An instance of ProjectStructure to manage file
+                paths.
+
         Returns:
-            Dictionary of saved file paths
+            A dictionary of paths to the saved files.
         """
         try:
             saved_files = {}

@@ -97,7 +97,20 @@ class MultimodalAnalyzer:
         return analysis_results
     
     def _analyze_transcript(self, transcript_segment: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Analyze transcript content using enhanced spaCy-powered analysis."""
+        """
+        Analyze transcript content using enhanced spaCy-powered analysis.
+
+        This method uses the EnhancedTranscriptAnalyzer to perform a deep
+        linguistic analysis of the transcript. If the enhanced analysis fails,
+        it falls back to a basic analysis.
+
+        Args:
+            transcript_segment: A list of transcript items for the segment.
+
+        Returns:
+            A dictionary containing the analysis of the transcript, including
+            key phrases, named entities, and other linguistic features.
+        """
         try:
             if not transcript_segment:
                 return {"error": "No transcript data available"}
@@ -172,7 +185,19 @@ class MultimodalAnalyzer:
             return self._basic_transcript_analysis(transcript_segment)
     
     def _basic_transcript_analysis(self, transcript_segment: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Fallback basic transcript analysis method."""
+        """
+        Perform a basic, fallback analysis of the transcript segment.
+
+        This method is used when the enhanced spaCy-based analysis is not
+        available or fails. It calculates basic metrics and extracts key
+        phrases using simple frequency analysis.
+
+        Args:
+            transcript_segment: A list of transcript items for the segment.
+
+        Returns:
+            A dictionary with basic transcript analysis results.
+        """
         try:
             # Extract text content
             text_content = " ".join([
@@ -237,7 +262,23 @@ class MultimodalAnalyzer:
         start_time: float, 
         end_time: float
     ) -> Dict[str, Any]:
-        """Analyze visual content by extracting and analyzing frames."""
+        """
+        Analyze visual content by extracting and analyzing key frames.
+
+        This method extracts a few representative frames from the segment,
+        analyzes each with Gemini for a technical description, and then
+        creates a summary of the visual content.
+
+        Args:
+            video_path: Path to the original video file.
+            frames_dir: Directory to store the extracted frames.
+            start_time: The start time of the segment in seconds.
+            end_time: The end time of the segment in seconds.
+
+        Returns:
+            A dictionary containing the analysis of the visual content,
+            including paths to frames and their analyses.
+        """
         try:
             # Extract frames from the segment using enhanced extraction
             frame_paths = extract_segment_frames(
@@ -297,7 +338,19 @@ Provide a concise technical analysis focusing on the educational/instructional c
             return {"error": str(e)}
     
     def _analyze_audio_content(self, audio_path: str) -> Dict[str, Any]:
-        """Analyze audio content (simplified version)."""
+        """
+        Perform a basic analysis of the audio content for the segment.
+
+        Currently, this provides basic file information. It can be extended
+        to perform more advanced audio analysis (e.g., silence detection,
+        speaker diarization) with additional libraries.
+
+        Args:
+            audio_path: Path to the audio file for the segment.
+
+        Returns:
+            A dictionary with basic information about the audio file.
+        """
         try:
             if not os.path.exists(audio_path):
                 return {"error": "Audio file not found"}
@@ -318,7 +371,18 @@ Provide a concise technical analysis focusing on the educational/instructional c
             return {"error": str(e)}
     
     def _create_visual_summary(self, frame_analyses: List[Dict[str, Any]]) -> str:
-        """Create a summary of visual analysis across frames."""
+        """
+        Create a concise summary from the visual analysis of multiple frames.
+
+        This method aggregates information from individual frame analyses to
+        identify common software and activities observed across the segment.
+
+        Args:
+            frame_analyses: A list of analysis results for each frame.
+
+        Returns:
+            A string summarizing the key visual elements.
+        """
         if not frame_analyses:
             return "No visual analysis available"
         
@@ -365,7 +429,21 @@ Provide a concise technical analysis focusing on the educational/instructional c
         visual_analysis: Dict[str, Any],
         audio_analysis: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Create a comprehensive multimodal summary."""
+        """
+        Create a comprehensive summary combining all analysis modalities.
+
+        This method synthesizes insights from transcript, visual, and audio
+        analyses to provide a holistic view of the segment's content.
+
+        Args:
+            transcript_analysis: The results from transcript analysis.
+            visual_analysis: The results from visual analysis.
+            audio_analysis: The results from audio analysis.
+
+        Returns:
+            A dictionary containing a multimodal summary with key insights,
+            technical elements, and a confidence score.
+        """
         try:
             summary = {
                 "analysis_timestamp": time.time(),
@@ -472,7 +550,17 @@ Provide a concise technical analysis focusing on the educational/instructional c
         analysis_results: Dict[str, Any], 
         segment_num: int
     ) -> None:
-        """Save analysis results to files."""
+        """
+        Save the analysis results for a segment to various files.
+
+        This includes the main multimodal analysis, a speaker-attributed
+        transcript, and a concise segment summary.
+
+        Args:
+            paths: A dictionary of output file paths for the segment.
+            analysis_results: The comprehensive analysis results to save.
+            segment_num: The number of the segment being processed.
+        """
         try:
             # Save main multimodal analysis
             multimodal_path = paths["multimodal_analysis"]

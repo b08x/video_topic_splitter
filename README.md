@@ -38,8 +38,8 @@ This README provides a detailed overview of the Video Topic Splitter, including 
 
 The Video Topic Splitter is a powerful tool designed to automatically segment videos into meaningful sections and provide comprehensive content analysis. It intelligently combines two parallel analysis tracks:
 
-1.  **Topic-Based Segmentation:** Analyzes the audio transcript to identify shifts in conversation, creating segments based on distinct topics.
-2.  **Scene-Based Visual Analysis:** Detects visual scene changes in the video, extracting unique frames for detailed examination.
+1. **Topic-Based Segmentation:** Analyzes the audio transcript to identify shifts in conversation, creating segments based on distinct topics.
+2. **Scene-Based Visual Analysis:** Detects visual scene changes in the video, extracting unique frames for detailed examination.
 
 It utilizes advanced AI models and techniques, including:
 
@@ -55,9 +55,9 @@ This makes it ideal for analyzing recordings of technical tutorials, meetings, p
 
 - **Dual Analysis Approach:** Combines topic-based text segmentation with scene-based visual analysis for a comprehensive understanding.
 - **Flexible Transcription:**
-    - Uses OpenAI's Whisper model for high-quality transcription.
-    - Supports custom Whisper API endpoints (e.g., local servers) via the `OPENAI_API_BASE` environment variable.
-    - Allows providing an external transcript file (`.srt`, `.vtt`, `.json`) to bypass the transcription step.
+  - Uses OpenAI's Whisper model for high-quality transcription.
+  - Supports custom Whisper API endpoints (e.g., local servers) via the `OPENAI_API_BASE` environment variable.
+  - Allows providing an external transcript file (`.srt`, `.vtt`, `.json`) to bypass the transcription step.
 - **Advanced Scene Detection:** Employs `PySceneDetect` to accurately identify scene boundaries in the video.
 - **Duplicate Frame Prevention:** Uses `ImageHash` to ensure that only visually unique frames from each scene are selected for analysis, improving efficiency.
 - **Topic Modeling (OpenRouter):** Identifies the primary topic discussed in each text segment.
@@ -165,8 +165,8 @@ The core logic resides in `video_topic_splitter.core.process_video`.
 
 - **If a transcript file is provided (`--transcript`):** The file is parsed, and its content is used for topic modeling.
 - **If no transcript is provided:**
-    - **Audio Processing:** The audio is extracted, normalized, and optimized for transcription using `ffmpeg` and `unsilence`.
-    - **Whisper Transcription:** A `curl` command sends the processed audio to a Whisper API endpoint (configurable via `OPENAI_API_BASE`). The JSON response is parsed into a standard format.
+  - **Audio Processing:** The audio is extracted, normalized, and optimized for transcription using `ffmpeg` and `unsilence`.
+  - **Whisper Transcription:** A `curl` command sends the processed audio to a Whisper API endpoint (configurable via `OPENAI_API_BASE`). The JSON response is parsed into a standard format.
 - The resulting transcript is saved in `.json`, `.srt`, and `.vtt` formats.
 
 ### 4. Topic Modeling
@@ -179,8 +179,8 @@ The core logic resides in `video_topic_splitter.core.process_video`.
 - **Unique Frame Extraction:** For each detected scene, a specified number of frames (`--frames-per-scene`) are extracted.
 - **Duplicate Filtering:** `ImageHash` calculates a perceptual hash for each extracted frame. Frames that are too visually similar to already selected frames are discarded to ensure uniqueness.
 - **Frame Analysis:** Each unique frame is analyzed:
-    - **OCR:** `pytesseract` detects software names.
-    - **Gemini Analysis:** Google's Gemini model provides a textual description of the visual content.
+  - **OCR:** `pytesseract` detects software names.
+  - **Gemini Analysis:** Google's Gemini model provides a textual description of the visual content.
 
 ### 6. Final Checkpoint and Results
 

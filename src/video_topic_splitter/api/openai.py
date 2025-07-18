@@ -1,6 +1,13 @@
 # api/openai.py
 #!/usr/bin/env python3
-"""OpenAI API integration for transcription services using cURL."""
+"""
+OpenAI API integration for transcription services.
+
+This module provides a function to interact with the OpenAI Whisper API for
+audio transcription. It uses a cURL command-line interface for robustness
+and to support custom API endpoints, which is useful for local or alternative
+Whisper server implementations.
+"""
 
 import json
 import os

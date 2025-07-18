@@ -5,7 +5,14 @@ from typing import Dict, Optional
 
 
 class RegisterTemplates:
-    """Manages prompt templates for different technical registers."""
+    """
+    Manages and provides prompt templates for different technical contexts.
+
+    This class centralizes the generation of prompts tailored to specific
+    "registers" or domains, such as IT workflows, generative AI, or technical
+    support. Each method provides a structured prompt to guide the language
+    model's analysis.
+    """
 
     @staticmethod
     def get_it_workflow_topic_prompt(context: str) -> str:
@@ -174,7 +181,20 @@ class RegisterTemplates:
 
 
 def get_topic_prompt(register: str, context: str) -> str:
-    """Get the appropriate topic analysis prompt for the given register."""
+    """
+    Get the appropriate topic analysis prompt for a given technical register.
+
+    This function selects the correct prompt template based on the specified
+    register, ensuring that the language model's analysis is tailored to the
+    relevant technical domain.
+
+    Args:
+        register: The technical register (e.g., "it-workflow", "gen-ai").
+        context: The text content to be analyzed.
+
+    Returns:
+        A formatted prompt string for topic analysis.
+    """
     templates = {
         "it-workflow": RegisterTemplates.get_it_workflow_topic_prompt,
         "gen-ai": RegisterTemplates.get_gen_ai_topic_prompt,
@@ -186,7 +206,21 @@ def get_topic_prompt(register: str, context: str) -> str:
 
 
 def get_analysis_prompt(register: str, context: str, transcript: str) -> str:
-    """Get the appropriate video analysis prompt for the given register."""
+    """
+    Get the appropriate video analysis prompt for a given technical register.
+
+    This function selects the correct prompt template for a comprehensive
+    video segment analysis, combining contextual information with the segment's
+    transcript.
+
+    Args:
+        register: The technical register (e.g., "it-workflow", "gen-ai").
+        context: Additional context for the analysis.
+        transcript: The transcript of the video segment.
+
+    Returns:
+        A formatted prompt string for comprehensive video analysis.
+    """
     templates = {
         "it-workflow": RegisterTemplates.get_it_workflow_analysis_prompt,
         "gen-ai": RegisterTemplates.get_gen_ai_analysis_prompt,
