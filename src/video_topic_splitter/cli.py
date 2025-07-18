@@ -1,5 +1,21 @@
 # cli.py
-"""Command-line interface for video topic splitter."""
+"""
+Command-line interface for the video topic splitter.
+
+This module provides a CLI for processing videos or screenshots for topic-based
+segmentation, scene analysis, and multimodal analysis. It handles argument
+parsing, input validation, and orchestrates the core processing functions.
+
+Example usage:
+    # Process a local video file
+    python -m video_topic_splitter.cli -i /path/to/video.mp4 -o /path/to/output
+
+    # Process a YouTube video
+    python -m video_topic_splitter.cli -i "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    # Analyze a single screenshot
+    python -m video_topic_splitter.cli -i /path/to/screenshot.png --analyze-screenshot
+"""
 
 import argparse
 import os
@@ -17,7 +33,21 @@ from .utils.youtube import is_youtube_url
 def validate_input(
     input_path: str, transcript_path: Optional[str], analyze_screenshot: bool
 ) -> Tuple[Optional[str], bool]:
-    """Validate inputs are valid files or a YouTube URL."""
+    """
+    Validate that inputs are valid files or a YouTube URL.
+
+    Checks for the existence of local files and validates file extensions for
+    videos, transcripts, and images.
+
+    Args:
+        input_path: The path to the input video, image, or a YouTube URL.
+        transcript_path: The optional path to a transcript file.
+        analyze_screenshot: Flag indicating if the input is a screenshot.
+
+    Returns:
+        A tuple containing an error message string (or None if valid) and a
+        boolean indicating if the input is a YouTube URL.
+    """
     is_youtube = is_youtube_url(input_path)
 
     if not is_youtube and not os.path.exists(input_path):
@@ -41,7 +71,13 @@ def validate_input(
 
 
 def main() -> None:
-    """Main entry point for the CLI."""
+    """
+    Main entry point for the CLI.
+
+    Parses command-line arguments, validates inputs, creates a project
+    structure, and initiates the video or screenshot processing pipeline.
+    Handles checkpointing to resume progress and manages exceptions.
+    """
     parser = argparse.ArgumentParser(
         description="Process video for topic-based segmentation and scene analysis."
     )

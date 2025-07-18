@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Core processing functionality for video topic splitter."""
+"""
+Core processing functionality for the video topic splitter.
+
+This module contains the main pipeline for video analysis, including audio
+processing, transcription, topic modeling, and multimodal analysis. It
+orchestrates the workflow from input video to final structured output.
+"""
 
 import json
 import os
@@ -24,9 +30,27 @@ from .utils.youtube import download_video
 load_dotenv()
 
 
-def handle_audio_video(video_path, project_path, skip_unsilence=False):
-    """Process audio from video file with checkpointing."""
-    # ... (This function remains largely the same)
+def handle_audio_video(video_path: str, project_path: str, skip_unsilence: bool = False) -> tuple[str, str]:
+    """
+    Process audio from a video file, including normalization and silence removal.
+
+    This function checks for cached processed audio files to avoid redundant
+    processing. It handles audio normalization, silence removal (optional),
+    audio extraction, and resampling to a standardized format.
+
+    Args:
+        video_path: Path to the input video file.
+        project_path: The root directory of the current project.
+        skip_unsilence: If True, skips the silence removal step.
+
+    Returns:
+        A tuple containing the path to the (potentially unsilenced) video
+        and the path to the final mono, resampled audio file.
+
+    Raises:
+        RuntimeError: If any of the underlying FFmpeg operations fail.
+    """
+
     audio_dir = os.path.join(project_path, "audio")
     os.makedirs(audio_dir, exist_ok=True)
 
@@ -48,7 +72,8 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
         print("Normalizing audio...")
         normalize_result = normalize_audio(video_path, normalized_video_path)
         if normalize_result["status"] == "error":
-            raise RuntimeError(f"Audio normalization failed: {normalize_result['message']}")
+            raise RuntimeError(
+                f"Audio normalization failed: {normalize_result['message']}")
         else:
             print(normalize_result["message"])
     else:
@@ -64,7 +89,8 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
                 normalized_video_path, unsilenced_video_path
             )
             if silence_removal_result["status"] == "error":
-                raise RuntimeError(f"Silence removal failed: {silence_removal_result['message']}")
+                raise RuntimeError(
+                    f"Silence removal failed: {silence_removal_result['message']}")
             else:
                 print(silence_removal_result["message"])
 
@@ -79,7 +105,8 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
             raw_audio_path, mono_resampled_audio_path
         )
         if conversion_result["status"] == "error":
-            raise RuntimeError(f"Audio conversion failed: {conversion_result['message']}")
+            raise RuntimeError(
+                f"Audio conversion failed: {conversion_result['message']}")
         else:
             print(conversion_result["message"])
     else:
@@ -98,9 +125,25 @@ def handle_audio_video(video_path, project_path, skip_unsilence=False):
 
 
 def get_or_create_transcript(
-    transcript_path, audio_path, project_path, transcribe_only
-):
-    """Load or generate a transcript, then save it in multiple formats."""
+    transcript_path: str, audio_path: str, project_path: str, transcribe_only: bool
+) -> dict:
+    """
+    Load a pre-existing transcript or generate one using the speech-to-text service.
+
+    If a transcript path is provided, it loads the file. Otherwise, it
+    transcribes the given audio file. The resulting transcript is saved in
+    multiple formats (.srt, .vtt) and a checkpoint is created.
+
+    Args:
+        transcript_path: Path to a pre-existing transcript file.
+        audio_path: Path to the audio file to be transcribed.
+        project_path: The root directory of the current project.
+        transcribe_only: If True, returns immediately after transcription.
+
+    Returns:
+        The transcript data as a dictionary. If `transcribe_only` is True,
+        it's wrapped in a dictionary with a `transcription_only` flag.
+    """
     if transcript_path:
         print(f"Loading transcript from: {transcript_path}")
         transcript = load_transcript(transcript_path)
@@ -125,35 +168,65 @@ def get_or_create_transcript(
 
 
 def process_video(
-    video_path,
-    project_path,
-    transcript_path=None,
-    num_topics=5,
-    skip_unsilence=False,
-    transcribe_only=False,
-    is_youtube_url=False,
-    software_list=None,
-    ocr_lang="eng",
-    frames_per_scene=1,
-    register="it-workflow",
-    progress_json=False,
-):
-    """Main video processing pipeline."""
+    video_path: str,
+    project_path: str,
+    transcript_path: str = None,
+    num_topics: int = 5,
+    skip_unsilence: bool = False,
+    transcribe_only: bool = False,
+    is_youtube_url: bool = False,
+    software_list: list = None,
+    ocr_lang: str = "eng",
+    frames_per_scene: int = 1,
+    register: str = "it-workflow",
+    progress_json: bool = False,
+) -> dict:
+    """
+    Execute the main video processing pipeline.
+
+    This function coordinates the entire video analysis process, including:
+    - Setting up project structure.
+    - Handling YouTube downloads.
+    - Processing audio and generating transcripts.
+    - Performing topic modeling on the transcript.
+    - Segmenting the video based on identified topics.
+    - Conducting multimodal analysis on each segment.
+    - Saving all results and checkpoints.
+
+    Args:
+        video_path: Path to the input video or YouTube URL.
+        project_path: The root directory for all output files.
+        transcript_path: Optional path to a pre-existing transcript file.
+        num_topics: The number of topics to identify in the transcript.
+        skip_unsilence: If True, skips the audio silence removal step.
+        transcribe_only: If True, stops after generating the transcript.
+        is_youtube_url: Flag indicating if the video_path is a YouTube URL.
+        software_list: A list of software names to detect in video frames.
+        ocr_lang: The language to use for Optical Character Recognition (OCR).
+        frames_per_scene: The number of frames to analyze per video scene.
+        register: The analysis register for tailoring AI analysis.
+        progress_json: If True, outputs progress updates in JSON format.
+
+    Returns:
+        A dictionary containing the comprehensive results of the analysis,
+        including topics, segments, and paths to generated files.
+    """
     from .project import load_checkpoint
-    
+
     # Initialize progress tracker
     progress_tracker = ProgressTracker(project_path, progress_json)
     progress_tracker.add_callback(create_console_progress_callback())
-    
+
     try:
         # Initialize project structure
         project_structure = ProjectStructure(project_path)
         project_structure.create_base_structure()
-        
+
         # Move input files to organized structure
-        input_files = project_structure.move_input_files(video_path, transcript_path)
+        input_files = project_structure.move_input_files(
+            video_path, transcript_path)
         video_path = input_files["video"]  # Use the copied video file
-        
+
         checkpoint = load_checkpoint(project_path)
         unsilenced_video_path = video_path
 
@@ -165,20 +238,22 @@ def process_video(
             ):
                 print("Downloading YouTube video...")
                 download_path = os.path.join(project_path, "source_video.mp4")
-                result = download_video(video_path, download_path, project_path)
+                result = download_video(
+                    video_path, download_path, project_path)
                 if result["status"] == "error":
-                    raise RuntimeError(f"YouTube download failed: {result['message']}")
+                    raise RuntimeError(
+                        f"YouTube download failed: {result['message']}")
                 video_path = download_path
                 save_checkpoint(
                     project_path,
                     CHECKPOINTS["YOUTUBE_DOWNLOAD_COMPLETE"],
-                    {"video_path": video_path, "thumbnail_info": result.get("thumbnail_info")},
+                    {"video_path": video_path,
+                        "thumbnail_info": result.get("thumbnail_info")},
                 )
                 print(result["message"])
             else:
                 video_path = checkpoint["data"]["video_path"]
                 print("Using previously downloaded YouTube video.")
-
 
         mono_resampled_audio_path = None
         if not transcript_path:
@@ -187,7 +262,8 @@ def process_video(
                     video_path, project_path, skip_unsilence
                 )
             else:
-                unsilenced_video_path = checkpoint["data"].get("unsilenced_video_path", video_path)
+                unsilenced_video_path = checkpoint["data"].get(
+                    "unsilenced_video_path", video_path)
                 mono_resampled_audio_path = checkpoint["data"]["mono_resampled_audio_path"]
 
         if checkpoint is None or checkpoint["stage"] < CHECKPOINTS["PROCESS_COMPLETE"]:
@@ -201,14 +277,14 @@ def process_video(
             topic_results = process_transcript(
                 transcript, project_path, num_topics, register=register, debug=False, progress_tracker=progress_tracker
             )
-            
+
             # Save transcript files in organized structure
             project_structure.save_transcript_files(transcript, topic_results)
-            
+
             # NEW: Video segmentation based on topics
             if progress_tracker:
                 progress_tracker.start_phase("Video Segmentation")
-            
+
             topic_segments = topic_results.get("segments", [])
             segmented_files = segment_video_by_topics(
                 unsilenced_video_path,
@@ -216,23 +292,23 @@ def process_video(
                 project_structure,
                 progress_tracker
             )
-            
+
             # NEW: Segment-level multimodal analysis
             if progress_tracker:
                 progress_tracker.start_phase("Segment Analysis")
-                
+
             segment_processor = SegmentProcessor(progress_tracker)
             processed_segments = segment_processor.process_segments(
                 unsilenced_video_path,
                 segmented_files,
                 transcript
             )
-            
+
             # Save segment results
             segment_results = segment_processor.save_segment_results(
                 processed_segments, project_structure
             )
-            
+
             # Keep legacy visual analysis for backward compatibility
             analyzed_scenes = split_and_analyze_video(
                 unsilenced_video_path,
@@ -243,7 +319,7 @@ def process_video(
                 register,
                 progress_tracker,
             )
-        
+
             # Combine results with new structure
             results = {
                 "topics": topic_results.get("topics", []),
@@ -263,23 +339,26 @@ def process_video(
             results_path = os.path.join(project_path, "results.json")
             with open(results_path, "w") as f:
                 json.dump(results, f, indent=2, default=str)
-                
+
             # Clean up legacy files
             project_structure.migrate_legacy_files()
 
-            save_checkpoint(project_path, CHECKPOINTS["PROCESS_COMPLETE"], {"results": results})
-        
+            save_checkpoint(project_path, CHECKPOINTS["PROCESS_COMPLETE"], {
+                            "results": results})
+
             progress_tracker.start_phase("Process Complete")
-            progress_tracker.update_phase_progress(100.0, "Processing complete - organized structure created")
+            progress_tracker.update_phase_progress(
+                100.0, "Processing complete - organized structure created")
             progress_tracker.complete_phase("Process Complete")
         else:
             results = checkpoint["data"]["results"]
             progress_tracker.start_phase("Process Complete")
-            progress_tracker.update_phase_progress(100.0, "Using cached results")
+            progress_tracker.update_phase_progress(
+                100.0, "Using cached results")
             progress_tracker.complete_phase("Process Complete")
 
         return results
-    
+
     except Exception as e:
         if progress_tracker:
             progress_tracker.fail_phase(f"Processing failed: {str(e)}")

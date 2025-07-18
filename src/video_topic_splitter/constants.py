@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Constants used throughout the video topic splitter."""
+"""
+Constants used throughout the video topic splitter application.
+
+This module defines centralized constants for managing processing stages,
+ensuring consistency across different modules.
+
+Attributes:
+    CHECKPOINTS (dict): A dictionary mapping human-readable checkpoint stage
+        names to integer values. This allows the application to save and
+        resume processing from a known state.
+"""
 
 # Define checkpoint stages
 CHECKPOINTS = {

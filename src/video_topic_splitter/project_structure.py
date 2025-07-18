@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Project structure management for organized video processing output."""
+"""
+Project structure management for organized video processing output.
+
+This module provides the `ProjectStructure` class, which is responsible for
+creating and managing a standardized directory layout for all files generated
+during the video analysis process. This ensures that outputs are organized,
+predictable, and easy to navigate.
+"""
 
 import os
 import re
@@ -11,20 +18,37 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectStructure:
-    """Manages the organized project directory structure."""
+    """
+    Manages the organized project directory structure.
+
+    This class defines and creates a standard folder hierarchy for each
+    processing project. It provides methods to access specific directories,
+    manage input and output files, and handle cleanup of temporary or
+    legacy files.
+
+    Attributes:
+        project_path (str): The root path of the project directory.
+        structure (Dict[str, str]): A dictionary mapping key names to their
+            corresponding absolute directory paths.
+    """
     
     def __init__(self, project_path: str):
         """
-        Initialize project structure manager.
+        Initialize the project structure manager.
         
         Args:
-            project_path: Base project directory path
+            project_path: The base path for the project directory.
         """
         self.project_path = project_path
         self.structure = self._define_structure()
     
     def _define_structure(self) -> Dict[str, str]:
-        """Define the target directory structure."""
+        """
+        Define the target directory structure.
+
+        Returns:
+            A dictionary defining the key subdirectories of the project.
+        """
         return {
             "input_files": os.path.join(self.project_path, "input_files"),
             "transcript": os.path.join(self.project_path, "transcript"),
@@ -35,41 +59,45 @@ class ProjectStructure:
         }
     
     def create_base_structure(self) -> None:
-        """Create the base directory structure."""
+        """Create the base directory structure on the filesystem."""
         for dir_name, dir_path in self.structure.items():
             os.makedirs(dir_path, exist_ok=True)
             logger.debug(f"Created directory: {dir_path}")
     
     def get_input_files_dir(self) -> str:
-        """Get the input files directory path."""
+        """Get the path to the input files directory."""
         return self.structure["input_files"]
     
     def get_transcript_dir(self) -> str:
-        """Get the transcript directory path."""
+        """Get the path to the transcript directory."""
         return self.structure["transcript"]
     
     def get_topic_segments_dir(self) -> str:
-        """Get the topic segments directory path."""
+        """Get the path to the topic segments directory."""
         return self.structure["topic_segments"]
     
     def get_final_analysis_dir(self) -> str:
-        """Get the final analysis directory path."""
+        """Get the path to the final analysis directory."""
         return self.structure["final_analysis"]
     
     def get_temp_dir(self) -> str:
-        """Get the temporary directory path."""
+        """Get the path to the temporary files directory."""
         return self.structure["temp"]
     
     def create_segment_directory(self, segment_num: int, topic_name: str) -> str:
         """
-        Create a directory for a specific topic segment.
+        Create a dedicated directory for a specific topic segment.
+
+        The directory name is constructed from the segment number and a
+        sanitized version of the topic name. It also creates subdirectories
+        for frames and audio analysis within the segment folder.
         
         Args:
-            segment_num: Segment number (1-based)
-            topic_name: Topic name from topic modeling
+            segment_num: The sequence number of the segment (1-based).
+            topic_name: The name of the topic associated with the segment.
             
         Returns:
-            Path to the created segment directory
+            The path to the newly created segment directory.
         """
         # Clean topic name for filesystem
         clean_topic = self._clean_topic_name(topic_name)
@@ -86,13 +114,13 @@ class ProjectStructure:
     
     def _clean_topic_name(self, topic_name: str) -> str:
         """
-        Clean topic name to be filesystem-safe.
+        Sanitize a topic name to be safe for use in a filesystem path.
         
         Args:
-            topic_name: Raw topic name from topic modeling
+            topic_name: The raw topic name from topic modeling.
             
         Returns:
-            Cleaned topic name safe for filesystem
+            A cleaned, filesystem-safe version of the topic name.
         """
         # Remove or replace problematic characters
         clean_name = re.sub(r'[<>:"/\\|?*]', '', topic_name)
@@ -112,14 +140,15 @@ class ProjectStructure:
     
     def get_segment_paths(self, segment_num: int, topic_name: str) -> Dict[str, str]:
         """
-        Get all file paths for a specific segment.
+        Get a dictionary of all standard file paths for a specific segment.
         
         Args:
-            segment_num: Segment number (1-based)
-            topic_name: Topic name from topic modeling
+            segment_num: The sequence number of the segment (1-based).
+            topic_name: The name of the topic associated with the segment.
             
         Returns:
-            Dictionary of file paths for the segment
+            A dictionary mapping key file types to their full paths for the
+            given segment.
         """
         segment_dir = self.create_segment_directory(segment_num, topic_name)
         
@@ -136,14 +165,14 @@ class ProjectStructure:
     
     def move_input_files(self, video_path: str, transcript_path: Optional[str] = None) -> Dict[str, str]:
         """
-        Move or copy input files to the input_files directory.
+        Copy input files into the project's `input_files` directory.
         
         Args:
-            video_path: Path to original video file
-            transcript_path: Path to original transcript file (optional)
+            video_path: The path to the original input video file.
+            transcript_path: The optional path to the original transcript file.
             
         Returns:
-            Dictionary of new file paths
+            A dictionary containing the new paths of the copied files.
         """
         input_dir = self.get_input_files_dir()
         
@@ -169,14 +198,15 @@ class ProjectStructure:
     
     def save_transcript_files(self, transcript_data: List[Dict], processed_transcript: Dict) -> Dict[str, str]:
         """
-        Save transcript files to the transcript directory.
+        Save processed transcript and analysis files to the transcript directory.
         
         Args:
-            transcript_data: Raw transcript data
-            processed_transcript: Processed transcript with topic information
+            transcript_data: The raw transcript data (list of segments).
+            processed_transcript: The transcript after topic modeling and
+                additional processing.
             
         Returns:
-            Dictionary of saved file paths
+            A dictionary of the saved file paths.
         """
         transcript_dir = self.get_transcript_dir()
         
@@ -206,13 +236,13 @@ class ProjectStructure:
     
     def save_final_analysis(self, analysis_data: Dict) -> str:
         """
-        Save final analysis to the final_analysis directory.
+        Save the final, consolidated analysis results to a JSON file.
         
         Args:
-            analysis_data: Final analysis results
+            analysis_data: The final analysis results dictionary.
             
         Returns:
-            Path to saved timeline file
+            The path to the saved analysis file.
         """
         final_dir = self.get_final_analysis_dir()
         timeline_path = os.path.join(final_dir, "topic_timeline.json")
@@ -225,7 +255,7 @@ class ProjectStructure:
         return timeline_path
     
     def cleanup_temp_files(self) -> None:
-        """Clean up temporary files."""
+        """Remove the temporary files directory and its contents."""
         temp_dir = self.get_temp_dir()
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
@@ -233,10 +263,10 @@ class ProjectStructure:
     
     def get_legacy_files(self) -> List[str]:
         """
-        Get list of legacy files that should be migrated or cleaned up.
+        Identify files from older versions of the tool that should be migrated.
         
         Returns:
-            List of legacy file paths
+            A list of absolute paths to legacy files found in the project root.
         """
         legacy_patterns = [
             "audio.opus",
@@ -263,7 +293,7 @@ class ProjectStructure:
         return legacy_files
     
     def migrate_legacy_files(self) -> None:
-        """Migrate legacy files to new structure."""
+        """Move legacy files to the temporary directory for eventual cleanup."""
         legacy_files = self.get_legacy_files()
         
         for file_path in legacy_files:
@@ -283,13 +313,16 @@ class ProjectStructure:
 
 def sanitize_filename(filename: str) -> str:
     """
-    Sanitize filename to be filesystem-safe.
+    Sanitize a string to be a filesystem-safe filename.
+
+    Removes or replaces characters that are invalid in many filesystems,
+    replaces whitespace, and truncates the name to a reasonable length.
     
     Args:
-        filename: Original filename
+        filename: The original, potentially unsafe filename.
         
     Returns:
-        Sanitized filename
+        A sanitized, filesystem-safe filename.
     """
     # Remove or replace problematic characters
     clean_name = re.sub(r'[<>:"/\\|?*]', '', filename)
