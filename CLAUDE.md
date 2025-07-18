@@ -214,6 +214,11 @@ python -m spacy download en_core_web_md
 - Log important operations and errors with appropriate levels
 - Use meaningful variable names and clear code structure
 
+## Development Guidance
+
+### Documentation and Code Quality
+- When making changes, always update the docstring comments
+
 ## Enhanced Transcript Analysis with spaCy
 
 The transcript analysis has been significantly upgraded using spaCy's advanced NLP capabilities:
