@@ -84,24 +84,23 @@ class ProjectStructure:
         """Get the path to the temporary files directory."""
         return self.structure["temp"]
     
-    def create_segment_directory(self, segment_num: int, topic_name: str) -> str:
+    def create_segment_directory(self, segment_num: int, topic_name: str = None) -> str:
         """
         Create a dedicated directory for a specific topic segment.
 
-        The directory name is constructed from the segment number and a
-        sanitized version of the topic name. It also creates subdirectories
-        for frames and audio analysis within the segment folder.
+        The directory name is constructed from the segment number only to ensure
+        deterministic paths that work with checkpoint resumption. Topic names
+        are stored in segment metadata instead of directory names.
         
         Args:
             segment_num: The sequence number of the segment (1-based).
-            topic_name: The name of the topic associated with the segment.
+            topic_name: The name of the topic (stored in metadata, not used for directory naming).
             
         Returns:
             The path to the newly created segment directory.
         """
-        # Clean topic name for filesystem
-        clean_topic = self._clean_topic_name(topic_name)
-        segment_dir_name = f"segment_{segment_num:03d}_{clean_topic}"
+        # Use only segment number for deterministic directory naming
+        segment_dir_name = f"segment_{segment_num:03d}"
         segment_dir = os.path.join(self.get_topic_segments_dir(), segment_dir_name)
         
         # Create segment directory structure
@@ -138,13 +137,13 @@ class ProjectStructure:
         
         return clean_name
     
-    def get_segment_paths(self, segment_num: int, topic_name: str) -> Dict[str, str]:
+    def get_segment_paths(self, segment_num: int, topic_name: str = None) -> Dict[str, str]:
         """
         Get a dictionary of all standard file paths for a specific segment.
         
         Args:
             segment_num: The sequence number of the segment (1-based).
-            topic_name: The name of the topic associated with the segment.
+            topic_name: The name of the topic (stored in metadata, not used for paths).
             
         Returns:
             A dictionary mapping key file types to their full paths for the
