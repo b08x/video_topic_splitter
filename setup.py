@@ -33,6 +33,8 @@ setup(
         "unsilence>=0.4.2",
         "scikit-learn>=1.4.1",
         "nltk>=3.8.1",
+        "spacy>=3.7.0",
+        "scipy>=1.10.0",
         "progressbar2>=4.2.0",
         "Pillow>=10.2.0",
         "yt-dlp>=2024.3.24",

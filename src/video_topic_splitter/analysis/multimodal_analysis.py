@@ -13,6 +13,7 @@ import time
 from ..api.gemini import analyze_with_gemini
 from ..processing.video.video_segmentation import extract_segment_frames
 from ..progress_tracker import ProgressTracker
+from .enhanced_transcript_analysis import EnhancedTranscriptAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class MultimodalAnalyzer:
             progress_tracker: Optional progress tracker
         """
         self.progress_tracker = progress_tracker
+        self.transcript_analyzer = EnhancedTranscriptAnalyzer()
     
     def analyze_segment(
         self,
@@ -95,11 +97,63 @@ class MultimodalAnalyzer:
         return analysis_results
     
     def _analyze_transcript(self, transcript_segment: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Analyze transcript content for the segment."""
+        """Analyze transcript content using enhanced spaCy-powered analysis."""
         try:
             if not transcript_segment:
                 return {"error": "No transcript data available"}
             
+            # Use the enhanced transcript analyzer
+            enhanced_analysis = self.transcript_analyzer.analyze_transcript_segment(transcript_segment)
+            
+            # If enhanced analysis failed, fall back to basic analysis
+            if "error" in enhanced_analysis:
+                logger.warning(f"Enhanced analysis failed: {enhanced_analysis['error']}, falling back to basic analysis")
+                return self._basic_transcript_analysis(transcript_segment)
+            
+            # Extract legacy-compatible data for backward compatibility
+            basic_metrics = enhanced_analysis.get("basic_metrics", {})
+            key_phrases_data = enhanced_analysis.get("key_phrases", {})
+            
+            # Combine enhanced results with legacy format
+            result = {
+                "text_content": enhanced_analysis.get("text_content", ""),
+                "word_count": basic_metrics.get("token_count", 0),
+                "duration": basic_metrics.get("duration", 0),
+                "speech_rate": basic_metrics.get("speech_rate", 0),
+                "segments_count": enhanced_analysis.get("segments_count", 0),
+                "transcript_segments": enhanced_analysis.get("transcript_segments", []),
+                
+                # Enhanced spaCy analysis results
+                "enhanced_analysis": {
+                    "key_phrases": key_phrases_data.get("noun_phrases", {}),
+                    "key_lemmas": key_phrases_data.get("key_lemmas", {}),
+                    "technical_terms": key_phrases_data.get("technical_terms", {}),
+                    "named_entities": enhanced_analysis.get("named_entities", {}),
+                    "linguistic_features": enhanced_analysis.get("linguistic_features", {}),
+                    "actions_and_relationships": enhanced_analysis.get("actions_and_relationships", {}),
+                    "technical_elements": enhanced_analysis.get("technical_elements", []),
+                    "semantic_features": enhanced_analysis.get("semantic_features", {})
+                }
+            }
+            
+            # Maintain legacy key_phrases format for compatibility
+            noun_phrases = key_phrases_data.get("noun_phrases", {})
+            key_lemmas = key_phrases_data.get("key_lemmas", {})
+            
+            # Combine and prioritize meaningful phrases over single words
+            all_phrases = list(noun_phrases.keys()) + list(key_lemmas.keys())
+            result["key_phrases"] = all_phrases[:10] if all_phrases else ["No significant phrases found"]
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in enhanced transcript analysis: {e}")
+            # Fall back to basic analysis
+            return self._basic_transcript_analysis(transcript_segment)
+    
+    def _basic_transcript_analysis(self, transcript_segment: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Fallback basic transcript analysis method."""
+        try:
             # Extract text content
             text_content = " ".join([
                 item.get("content", item.get("text", ""))
@@ -130,11 +184,12 @@ class MultimodalAnalyzer:
                 "speech_rate": word_count / total_duration if total_duration > 0 else 0,
                 "key_phrases": [phrase[0] for phrase in key_phrases],
                 "segments_count": len(transcript_segment),
-                "transcript_segments": transcript_segment
+                "transcript_segments": transcript_segment,
+                "analysis_method": "basic_fallback"
             }
             
         except Exception as e:
-            logger.error(f"Error analyzing transcript: {e}")
+            logger.error(f"Error in basic transcript analysis: {e}")
             return {"error": str(e)}
     
     def _analyze_visual_content(
@@ -281,24 +336,56 @@ Provide a concise technical analysis focusing on the educational/instructional c
                 "confidence_score": 0.0
             }
             
-            # Analyze transcript content
+            # Analyze transcript content (enhanced with spaCy)
             if transcript_analysis and not transcript_analysis.get("error"):
                 summary["modalities_analyzed"].append("transcript")
                 
                 text_content = transcript_analysis.get("text_content", "")
                 key_phrases = transcript_analysis.get("key_phrases", [])
+                enhanced_analysis = transcript_analysis.get("enhanced_analysis", {})
                 
                 if text_content:
+                    word_count = transcript_analysis.get("word_count", len(text_content.split()))
                     summary["key_insights"].append(
-                        f"Transcript analysis: {len(text_content.split())} words, "
+                        f"Transcript analysis: {word_count} tokens, "
                         f"key topics: {', '.join(key_phrases[:3])}"
                     )
                 
-                # Extract technical elements from transcript
-                technical_terms = [phrase for phrase in key_phrases if any(
-                    tech in phrase.lower() for tech in ["code", "command", "install", "run", "error", "config"]
-                )]
-                summary["technical_elements"].extend(technical_terms)
+                # Extract technical elements from enhanced analysis
+                if enhanced_analysis:
+                    # Get technical terms from spaCy analysis
+                    spacy_technical = enhanced_analysis.get("technical_elements", [])
+                    technical_terms_dict = enhanced_analysis.get("technical_terms", {})
+                    
+                    # Combine technical elements
+                    all_technical = list(spacy_technical) + list(technical_terms_dict.keys())
+                    summary["technical_elements"].extend(all_technical)
+                    
+                    # Add insights from named entities
+                    named_entities = enhanced_analysis.get("named_entities", {})
+                    if named_entities.get("entities"):
+                        entity_summary = named_entities.get("summary", {})
+                        total_entities = entity_summary.get("total_entities", 0)
+                        if total_entities > 0:
+                            summary["key_insights"].append(
+                                f"Named entities: {total_entities} entities identified "
+                                f"across {entity_summary.get('entity_types', 0)} categories"
+                            )
+                    
+                    # Add insights from actions and relationships
+                    actions = enhanced_analysis.get("actions_and_relationships", {})
+                    if actions.get("key_actions"):
+                        action_count = actions.get("total_actions", 0)
+                        if action_count > 0:
+                            summary["key_insights"].append(
+                                f"Key actions: {action_count} distinct actions identified"
+                            )
+                else:
+                    # Fallback to basic analysis
+                    technical_terms = [phrase for phrase in key_phrases if any(
+                        tech in phrase.lower() for tech in ["code", "command", "install", "run", "error", "config"]
+                    )]
+                    summary["technical_elements"].extend(technical_terms)
             
             # Analyze visual content
             if visual_analysis and not visual_analysis.get("error"):

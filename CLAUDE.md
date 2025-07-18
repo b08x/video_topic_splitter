@@ -11,6 +11,7 @@ The Video Topic Splitter is a sophisticated Python-based AI tool that automatica
 ### Core AI Components
 - **Audio Transcription**: OpenAI Whisper API with configurable endpoints
 - **Topic Modeling**: OpenRouter's microsoft/phi-4 model for topic segmentation
+- **Enhanced NLP Analysis**: spaCy for sophisticated transcript analysis including tokenization, lemmatization, NER, and dependency parsing
 - **Visual Analysis**: Google Gemini API for frame-level content analysis
 - **Scene Detection**: PySceneDetect for visual scene boundary detection
 - **Audio Processing**: ffmpeg, ffmpeg-normalize, unsilence for audio manipulation
@@ -169,6 +170,17 @@ Key external tools required:
 - `unsilence` (silence removal)
 - `tesseract` (OCR functionality)
 
+### Python Dependencies
+Key Python packages:
+- `spacy>=3.7.0` (advanced NLP analysis)
+- `scipy` (for semantic similarity calculations)
+- Required spaCy language model: `en_core_web_md` (includes word vectors for semantic analysis)
+
+Install spaCy model:
+```bash
+python -m spacy download en_core_web_md
+```
+
 ## Common Issues & Solutions
 
 ### Audio Processing Issues
@@ -202,9 +214,35 @@ Key external tools required:
 - Log important operations and errors with appropriate levels
 - Use meaningful variable names and clear code structure
 
+## Enhanced Transcript Analysis with spaCy
+
+The transcript analysis has been significantly upgraded using spaCy's advanced NLP capabilities:
+
+### Key Features
+- **Superior Tokenization**: Handles contractions, punctuation, and abbreviations correctly (vs. basic `text.split()`)
+- **Lemmatization**: Groups word variations ("analyze", "analyzing", "analyzed") under base forms
+- **Stop Word Removal**: Filters out common words using linguistic understanding, not length heuristics
+- **Noun Chunking**: Extracts meaningful multi-word phrases like "quarterly earnings report"
+- **Named Entity Recognition**: Automatically identifies people, organizations, dates, money, locations
+- **Part-of-Speech Analysis**: Categorizes words by grammatical function for content filtering
+- **Dependency Parsing**: Extracts subject-verb-object relationships showing "who did what"
+- **Semantic Similarity**: Enables topic clustering and semantic search (with word vectors)
+
+### Output Enhancements
+The enhanced analysis provides structured data including:
+- **Named Entities**: `{"PERSON": ["John Smith"], "ORG": ["Acme Corp"], "MONEY": ["$50,000"]}`
+- **Key Actions**: Subject-verb-object triplets showing main actions and actors
+- **Technical Elements**: Automatically detected software, tools, and technical terms
+- **Linguistic Features**: Part-of-speech distributions and grammatical relationships
+- **Semantic Insights**: Document coherence and similarity scores
+
+### Backward Compatibility
+The system maintains full backward compatibility while adding enhanced analysis as optional structured data under `enhanced_analysis` key.
+
 ## Recent Changes (v0.2.0)
 
 - **Major Refactoring**: Added organized directory structure with topic-based segments
+- **Enhanced NLP**: Integrated spaCy for sophisticated transcript analysis with NER, lemmatization, and dependency parsing
 - **Video Segmentation**: Implemented FFmpeg-based video/audio cutting with keyframe alignment
 - **Multimodal Analysis**: Created comprehensive segment analysis pipeline
 - **Progress Tracking**: Enhanced progress system with hierarchical reporting
