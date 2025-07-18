@@ -6,6 +6,15 @@ This module provides a CLI for processing videos or screenshots for topic-based
 segmentation, scene analysis, and multimodal analysis. It handles argument
 parsing, input validation, and orchestrates the core processing functions.
 
+The CLI supports automatic checkpoint resumption - if processing is interrupted
+at any stage, re-running with the same output directory will resume from the
+last completed checkpoint rather than starting over. This includes per-segment
+checkpointing during analysis phases for fine-grained resumption.
+
+Post-processing features include an interactive segment summary editor that
+allows users to review and modify AI-generated insights, technical elements,
+and confidence scores for each video segment.
+
 Example usage:
     # Process a local video file
     python -m video_topic_splitter.cli -i /path/to/video.mp4 -o /path/to/output
@@ -15,6 +24,9 @@ Example usage:
 
     # Analyze a single screenshot
     python -m video_topic_splitter.cli -i /path/to/screenshot.png --analyze-screenshot
+    
+    # Process with interactive editing
+    python -m video_topic_splitter.cli -i /path/to/video.mp4 --edit-summaries
 """
 
 import argparse
@@ -142,6 +154,46 @@ def main() -> None:
         action="store_true",
         help="Output progress information as JSON for programmatic consumption.",
     )
+    parser.add_argument(
+        "--edit-summaries",
+        action="store_true",
+        help="Launch interactive editor for segment summaries after processing.",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Enable interactive mode for post-processing operations.",
+    )
+    parser.add_argument(
+        "--min-segment-duration",
+        type=float,
+        default=30.0,
+        help="Minimum duration for merged segments in seconds (default: 30.0).",
+    )
+    parser.add_argument(
+        "--max-segment-duration",
+        type=float,
+        default=300.0,
+        help="Maximum duration for merged segments in seconds (default: 300.0).",
+    )
+    parser.add_argument(
+        "--topic-confidence-threshold",
+        type=float,
+        default=0.7,
+        help="Minimum confidence to merge segments (default: 0.7).",
+    )
+    parser.add_argument(
+        "--preserve-natural-breaks",
+        action="store_true",
+        default=True,
+        help="Respect natural pauses/breaks when merging segments (default: True).",
+    )
+    parser.add_argument(
+        "--no-preserve-natural-breaks",
+        dest="preserve_natural_breaks",
+        action="store_false",
+        help="Ignore natural pauses/breaks when merging segments.",
+    )
 
     args = parser.parse_args()
     load_dotenv()
@@ -161,11 +213,7 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        checkpoint = load_checkpoint(project_path)
-        if checkpoint and checkpoint["stage"] == CHECKPOINTS["PROCESS_COMPLETE"]:
-            print("Loading results from previous complete run.")
-            results = checkpoint["data"]["results"]
-        elif args.analyze_screenshot:
+        if args.analyze_screenshot:
             from .analysis.visual_analysis import analyze_screenshot
             results = analyze_screenshot(
                 args.input,
@@ -197,9 +245,19 @@ def main() -> None:
                 frames_per_scene=args.frames_per_scene,
                 register=args.register,
                 progress_json=args.progress_json,
+                min_segment_duration=args.min_segment_duration,
+                max_segment_duration=args.max_segment_duration,
+                topic_confidence_threshold=args.topic_confidence_threshold,
+                preserve_natural_breaks=args.preserve_natural_breaks,
             )
 
-        print(f"\nProcessing complete. Project folder: {project_path}")
+        # Check if results came from a completed checkpoint
+        checkpoint = load_checkpoint(project_path)
+        if checkpoint and checkpoint["stage"] == CHECKPOINTS["PROCESS_COMPLETE"]:
+            print("Results loaded from previous complete run.")
+        else:
+            print(f"\nProcessing complete. Project folder: {project_path}")
+        
         print(f"Results saved in: {os.path.join(project_path, 'results.json')}")
 
         if not args.transcribe_only and not args.analyze_screenshot:
@@ -207,6 +265,25 @@ def main() -> None:
             for topic in results.get("topics", []):
                 print(f"  Topic {topic['topic_id'] + 1}: {', '.join(topic['words'])}")
             print(f"\nAnalyzed {len(results.get('analyzed_scenes', []))} scenes.")
+        
+        # Interactive editing options
+        if args.edit_summaries or args.interactive:
+            if not args.transcribe_only and not args.analyze_screenshot:
+                # Check if segment summaries exist
+                segments_dir = os.path.join(project_path, "topic_segments")
+                if os.path.exists(segments_dir):
+                    print("\nLaunching interactive segment editor...")
+                    from .interactive_editor import launch_segment_editor
+                    launch_segment_editor(project_path)
+                else:
+                    print("\nNo segment summaries found to edit.")
+            else:
+                print("\nInteractive editing is only available for full video processing.")
+        elif not args.transcribe_only and not args.analyze_screenshot:
+            # Show editing option if segments exist
+            segments_dir = os.path.join(project_path, "topic_segments")
+            if os.path.exists(segments_dir):
+                print("\nTip: Use --edit-summaries to interactively edit segment summaries.")
 
     except KeyboardInterrupt:
         print("\nProcess interrupted by user. Progress has been saved.")
