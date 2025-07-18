@@ -8,7 +8,9 @@ ensuring consistency across different modules.
 Attributes:
     CHECKPOINTS (dict): A dictionary mapping human-readable checkpoint stage
         names to integer values. This allows the application to save and
-        resume processing from a known state.
+        resume processing from a known state. The system supports both
+        major phase checkpoints and fine-grained per-segment checkpointing
+        for efficient resumption of interrupted processing.
 """
 
 # Define checkpoint stages
@@ -19,6 +21,7 @@ CHECKPOINTS = {
     "TRANSCRIPTION_COMPLETE": 3,
     "TOPIC_MODELING_COMPLETE": 5,
     "SEGMENTS_IDENTIFIED": 6,
+    "SEGMENTS_ANALYSIS_PROGRESS": 6.5,  # New checkpoint for incremental segment analysis
     "SCENES_DETECTED": 7,  # New checkpoint for scene detection
     "VIDEO_ANALYZED": 8,
     "VISUAL_ANALYSIS_COMPLETE": 9,  # Checkpoint for visual analysis completion

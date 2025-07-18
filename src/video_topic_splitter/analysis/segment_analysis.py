@@ -37,6 +37,10 @@ class SegmentProcessor:
         """
         Process all video segments with multimodal analysis.
         
+        This method supports resuming from previously completed segments by checking
+        for existing segment_summary.json files. If a segment was already processed,
+        it will be loaded from disk instead of being reprocessed.
+        
         Args:
             video_path: Path to the original video file
             segmented_files: List of segment information from video segmentation
@@ -50,15 +54,35 @@ class SegmentProcessor:
         if self.progress_tracker:
             self.progress_tracker.start_phase("Segment Analysis")
         
+        # Check for existing completed segments
+        completed_segments = self._load_completed_segments(segmented_files)
         processed_segments = []
         total_segments = len(segmented_files)
         
-        for i, segment_info in enumerate(segmented_files):
+        # Add completed segments to results
+        for segment_info in segmented_files:
+            segment_num = segment_info["segment_number"]
+            if segment_num in completed_segments:
+                processed_segments.append(completed_segments[segment_num])
+                logger.info(f"Loaded existing analysis for segment {segment_num}")
+        
+        # Process remaining segments
+        segments_to_process = [s for s in segmented_files if s["segment_number"] not in completed_segments]
+        
+        if segments_to_process:
+            logger.info(f"Processing {len(segments_to_process)} new segments (resuming from {len(completed_segments)} completed)")
+        else:
+            logger.info("All segments already completed, loading existing results")
+        
+        for i, segment_info in enumerate(segments_to_process):
             segment_num = segment_info["segment_number"]
             topic_name = segment_info["topic"]
             
+            # Calculate progress including already completed segments
+            total_processed = len(completed_segments) + i
+            progress = (total_processed / total_segments) * 100
+            
             if self.progress_tracker:
-                progress = (i / total_segments) * 100
                 self.progress_tracker.update_phase_progress(
                     progress, f"Processing segment {segment_num}: {topic_name}"
                 )
@@ -83,6 +107,9 @@ class SegmentProcessor:
                 
                 processed_segments.append(analysis_results)
                 
+                # Save checkpoint after each successful segment
+                self._save_segment_checkpoint(segment_num, len(completed_segments) + i + 1, total_segments)
+                
             except Exception as e:
                 logger.error(f"Error processing segment {segment_num}: {e}")
                 
@@ -99,6 +126,9 @@ class SegmentProcessor:
                     }
                 }
                 processed_segments.append(error_result)
+        
+        # Sort by segment number to maintain order
+        processed_segments.sort(key=lambda x: x.get("segment_info", {}).get("segment_number", 0))
         
         if self.progress_tracker:
             self.progress_tracker.complete_phase("Segment Analysis")
@@ -208,6 +238,214 @@ class SegmentProcessor:
             logger.error(f"Error validating segment files: {e}")
         
         return validation
+    
+    def _load_completed_segments(self, segmented_files: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
+        """
+        Load analysis results from previously completed segments.
+        
+        This method scans the segment directories for existing segment_summary.json files
+        and loads their analysis results. This enables resuming processing from where
+        it left off if interrupted.
+        
+        Args:
+            segmented_files: List of segment information from video segmentation
+            
+        Returns:
+            Dictionary mapping segment numbers to their completed analysis results
+        """
+        completed_segments = {}
+        
+        for segment_info in segmented_files:
+            segment_num = segment_info["segment_number"]
+            
+            # Check if this segment has been completed
+            if self._is_segment_completed(segment_info):
+                try:
+                    # Load the completed analysis results
+                    analysis_result = self._load_segment_analysis(segment_info)
+                    if analysis_result:
+                        completed_segments[segment_num] = analysis_result
+                        logger.debug(f"Loaded completed segment {segment_num}")
+                except Exception as e:
+                    logger.warning(f"Could not load completed segment {segment_num}: {e}")
+        
+        return completed_segments
+    
+    def _is_segment_completed(self, segment_info: Dict[str, Any]) -> bool:
+        """
+        Check if a segment has been completed by looking for its summary file.
+        
+        Args:
+            segment_info: Information about the segment to check
+            
+        Returns:
+            True if the segment appears to have been completed, False otherwise
+        """
+        try:
+            # Get segment number to construct the expected directory path
+            segment_num = segment_info.get("segment_number")
+            if not segment_num:
+                return False
+            
+            # Try to get segment directory from paths first
+            paths = segment_info.get("paths", {})
+            segment_dir = paths.get("segment_dir")
+            
+            # If no segment_dir in paths, construct it from segment number
+            if not segment_dir:
+                # This handles cases where we're checking before paths are created
+                from ..project_structure import ProjectStructure
+                # We need to get the project path somehow - try to infer from progress tracker
+                if hasattr(self, 'progress_tracker') and self.progress_tracker:
+                    project_path = getattr(self.progress_tracker, 'project_path', None)
+                    if project_path:
+                        project_structure = ProjectStructure(project_path)
+                        segment_dir = os.path.join(project_structure.get_topic_segments_dir(), f"segment_{segment_num:03d}")
+            
+            if not segment_dir or not os.path.exists(segment_dir):
+                return False
+            
+            # Check for segment summary file (our completion marker)
+            summary_path = os.path.join(segment_dir, "segment_summary.json")
+            if not os.path.exists(summary_path):
+                return False
+            
+            # Validate that the summary file is not empty and contains valid JSON
+            try:
+                with open(summary_path, 'r', encoding='utf-8') as f:
+                    summary_data = json.load(f)
+                    # Basic validation - should have key fields
+                    return (
+                        "segment_number" in summary_data and 
+                        "topic" in summary_data and
+                        "duration" in summary_data
+                    )
+            except (json.JSONDecodeError, KeyError):
+                return False
+            
+        except Exception as e:
+            logger.debug(f"Error checking segment completion: {e}")
+            return False
+    
+    def _load_segment_analysis(self, segment_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Load the full analysis results for a completed segment.
+        
+        Args:
+            segment_info: Information about the segment to load
+            
+        Returns:
+            The complete analysis results for the segment, or None if loading failed
+        """
+        try:
+            # Get segment number to construct the expected directory path
+            segment_num = segment_info.get("segment_number")
+            if not segment_num:
+                return None
+            
+            # Try to get segment directory from paths first
+            paths = segment_info.get("paths", {})
+            segment_dir = paths.get("segment_dir")
+            
+            # If no segment_dir in paths, construct it from segment number
+            if not segment_dir:
+                from ..project_structure import ProjectStructure
+                if hasattr(self, 'progress_tracker') and self.progress_tracker:
+                    project_path = getattr(self.progress_tracker, 'project_path', None)
+                    if project_path:
+                        project_structure = ProjectStructure(project_path)
+                        segment_dir = os.path.join(project_structure.get_topic_segments_dir(), f"segment_{segment_num:03d}")
+            
+            if not segment_dir or not os.path.exists(segment_dir):
+                return None
+            
+            # Load the main analysis file
+            analysis_path = os.path.join(segment_dir, f"multimodal_analysis_{segment_num:03d}.json")
+            if os.path.exists(analysis_path):
+                with open(analysis_path, 'r', encoding='utf-8') as f:
+                    analysis_data = json.load(f)
+                    
+                    # Add processing info to indicate this was loaded from disk
+                    analysis_data["processing_info"] = {
+                        "processed_successfully": True,
+                        "loaded_from_checkpoint": True,
+                        "files_validated": self._validate_segment_files(segment_info)
+                    }
+                    
+                    return analysis_data
+            
+            # Fallback: construct analysis from summary if main file doesn't exist
+            summary_path = os.path.join(segment_dir, "segment_summary.json")
+            if os.path.exists(summary_path):
+                with open(summary_path, 'r', encoding='utf-8') as f:
+                    summary_data = json.load(f)
+                    
+                    # Create a minimal analysis result from the summary
+                    analysis_result = {
+                        "segment_info": {
+                            "segment_number": summary_data.get("segment_number"),
+                            "topic": summary_data.get("topic"),
+                            "duration": summary_data.get("duration", 0),
+                            "start_time": segment_info.get("start_time", 0),
+                            "end_time": segment_info.get("end_time", 0)
+                        },
+                        "multimodal_summary": {
+                            "key_insights": summary_data.get("key_insights", []),
+                            "technical_elements": summary_data.get("technical_elements", []),
+                            "confidence_score": summary_data.get("confidence_score", 0.0),
+                            "modalities_analyzed": summary_data.get("modalities_analyzed", [])
+                        },
+                        "processing_info": {
+                            "processed_successfully": True,
+                            "loaded_from_checkpoint": True,
+                            "reconstructed_from_summary": True
+                        }
+                    }
+                    
+                    return analysis_result
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error loading segment analysis: {e}")
+            return None
+    
+    def _save_segment_checkpoint(self, segment_num: int, completed_count: int, total_count: int) -> None:
+        """
+        Save a checkpoint after completing a segment.
+        
+        Args:
+            segment_num: The segment number that was just completed
+            completed_count: Total number of segments completed so far
+            total_count: Total number of segments to process
+        """
+        try:
+            from ..project import save_checkpoint
+            from ..constants import CHECKPOINTS
+            
+            # Get project path from progress tracker if available
+            project_path = None
+            if hasattr(self, 'progress_tracker') and self.progress_tracker:
+                project_path = getattr(self.progress_tracker, 'project_path', None)
+            
+            if project_path:
+                checkpoint_data = {
+                    "completed_segments": completed_count,
+                    "total_segments": total_count,
+                    "last_completed_segment": segment_num,
+                    "progress_percentage": (completed_count / total_count) * 100
+                }
+                
+                save_checkpoint(
+                    project_path,
+                    CHECKPOINTS["SEGMENTS_ANALYSIS_PROGRESS"],
+                    checkpoint_data
+                )
+                
+                logger.debug(f"Saved checkpoint: {completed_count}/{total_count} segments completed")
+        
+        except Exception as e:
+            logger.warning(f"Could not save segment checkpoint: {e}")
     
     def generate_segment_timeline(
         self, 
