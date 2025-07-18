@@ -160,6 +160,10 @@ class ProgressTracker:
                     current_phase.end_time = time.time()
             
             self._notify_callbacks()
+            
+            # Print newline if this is the final phase
+            if phase_name == "Process Complete" and not self.json_output:
+                print()  # Clean line break after completion
     
     def fail_phase(self, error_message: str, phase_name: str = None):
         """Mark a phase as failed."""
@@ -286,7 +290,19 @@ class SubProgressTracker:
 
 
 def create_console_progress_callback(use_progressbar: bool = True) -> Callable:
-    """Create a console progress callback function."""
+    """Create a console progress callback function with colors and improved formatting."""
+    
+    # ANSI color codes
+    class Colors:
+        BLUE = '\033[94m'
+        GREEN = '\033[92m'
+        YELLOW = '\033[93m'
+        RED = '\033[91m'
+        CYAN = '\033[96m'
+        WHITE = '\033[97m'
+        BOLD = '\033[1m'
+        DIM = '\033[2m'
+        RESET = '\033[0m'
     
     def console_callback(progress_data: Dict):
         current_phase = progress_data["current_phase"]
@@ -297,7 +313,40 @@ def create_console_progress_callback(use_progressbar: bool = True) -> Callable:
             phase_name = current_phase.name if hasattr(current_phase, 'name') else current_phase["name"]
             phase_desc = current_phase.description if hasattr(current_phase, 'description') else current_phase["description"]
             
-            eta_str = f" (ETA: {eta:.0f}s)" if eta else ""
-            print(f"\r[{overall_progress:5.1f}%] {phase_name}: {phase_desc}{eta_str}", end="", flush=True)
+            # Color progress percentage based on completion
+            if overall_progress < 25:
+                progress_color = Colors.RED
+            elif overall_progress < 50:
+                progress_color = Colors.YELLOW
+            elif overall_progress < 75:
+                progress_color = Colors.CYAN
+            else:
+                progress_color = Colors.GREEN
+            
+            # Format ETA
+            eta_str = ""
+            if eta:
+                if eta < 60:
+                    eta_str = f" {Colors.DIM}(ETA: {eta:.0f}s){Colors.RESET}"
+                else:
+                    minutes = int(eta // 60)
+                    seconds = int(eta % 60)
+                    eta_str = f" {Colors.DIM}(ETA: {minutes}m {seconds}s){Colors.RESET}"
+            
+            # Create progress bar visual
+            bar_length = 20
+            filled_length = int(bar_length * overall_progress / 100)
+            bar = '█' * filled_length + '░' * (bar_length - filled_length)
+            
+            # Format the complete progress line
+            progress_line = (
+                f"\r{Colors.BOLD}[{progress_color}{overall_progress:5.1f}%{Colors.RESET}{Colors.BOLD}] "
+                f"{Colors.CYAN}{bar}{Colors.RESET} "
+                f"{Colors.WHITE}{phase_name}:{Colors.RESET} "
+                f"{phase_desc}"
+                f"{eta_str}"
+            )
+            
+            print(progress_line, end="", flush=True)
     
     return console_callback

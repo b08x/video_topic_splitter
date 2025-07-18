@@ -139,10 +139,30 @@ class MultimodalAnalyzer:
             # Maintain legacy key_phrases format for compatibility
             noun_phrases = key_phrases_data.get("noun_phrases", {})
             key_lemmas = key_phrases_data.get("key_lemmas", {})
+            technical_terms = key_phrases_data.get("technical_terms", {})
             
-            # Combine and prioritize meaningful phrases over single words
-            all_phrases = list(noun_phrases.keys()) + list(key_lemmas.keys())
-            result["key_phrases"] = all_phrases[:10] if all_phrases else ["No significant phrases found"]
+            # Prioritize multi-word phrases over single words, and technical terms
+            phrase_candidates = []
+            
+            # Add technical terms first (highest priority)
+            for term, count in sorted(technical_terms.items(), key=lambda x: x[1], reverse=True):
+                if len(term) > 3 and term not in phrase_candidates:
+                    phrase_candidates.append(term)
+            
+            # Add noun phrases (medium priority)
+            for phrase, count in sorted(noun_phrases.items(), key=lambda x: x[1], reverse=True):
+                if len(phrase) > 3 and phrase not in phrase_candidates:
+                    phrase_candidates.append(phrase)
+            
+            # Add meaningful lemmas only if we don't have enough phrases (lowest priority)
+            if len(phrase_candidates) < 5:
+                for lemma, count in sorted(key_lemmas.items(), key=lambda x: x[1], reverse=True):
+                    if (len(lemma) > 3 and 
+                        lemma not in phrase_candidates and
+                        lemma not in {'this', 'that', 'these', 'those', 'like', 'just', 'really'}):
+                        phrase_candidates.append(lemma)
+            
+            result["key_phrases"] = phrase_candidates[:10] if phrase_candidates else ["No significant phrases found"]
             
             return result
             
@@ -167,14 +187,32 @@ class MultimodalAnalyzer:
                 for item in transcript_segment
             ])
             
-            # Extract key phrases (simple approach)
-            words = text_content.lower().split()
+            # Extract key phrases (improved approach)
+            import re
+            
+            # Basic stop words list
+            stop_words = {
+                'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 
+                'this', 'that', 'these', 'those', 'i', 'me', 'my', 'we', 'our', 'you', 'your', 'he', 'his', 
+                'she', 'her', 'it', 'its', 'they', 'them', 'their', 'is', 'are', 'was', 'were', 'be', 'been', 
+                'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might',
+                'can', 'cant', 'cannot', 'so', 'very', 'really', 'just', 'now', 'then', 'here', 'there',
+                'like', 'about', 'up', 'down', 'out', 'off', 'over', 'under', 'again', 'further', 'than',
+                'most', 'other', 'some', 'such', 'only', 'same', 'few', 'more', 'all', 'any', 'each', 'every'
+            }
+            
+            # Clean and tokenize text
+            words = re.findall(r'\b[a-z]+\b', text_content.lower())
             word_freq = {}
+            
             for word in words:
-                if len(word) > 3:  # Only consider words longer than 3 characters
+                # Filter: longer than 3 chars, not a stop word, contains letters
+                if (len(word) > 3 and 
+                    word not in stop_words and 
+                    word.isalpha()):
                     word_freq[word] = word_freq.get(word, 0) + 1
             
-            # Get most frequent words as key phrases
+            # Get most frequent meaningful words as key phrases
             key_phrases = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:10]
             
             return {
