@@ -97,7 +97,10 @@ def segment_video_by_topics(
             "paths": segment_paths,
             "video_created": video_created,
             "audio_created": audio_created,
-            "original_segment_data": segment_data
+            "original_segment_data": segment_data,
+            # Include merge information if available
+            "merge_info": segment_data.get("merge_info", {"segments_merged": 1, "merge_confidence": 1.0}),
+            "original_segments": segment_data.get("original_segments", [segment_data])
         }
         
         segmented_files.append(segment_info)

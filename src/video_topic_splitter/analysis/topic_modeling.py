@@ -297,20 +297,32 @@ class TopicAnalyzer:
         
         return segments
 
-    def segment_by_topic(self, analyzed_segments: List[Dict]) -> List[Dict]:
+    def segment_by_topic(
+        self, 
+        analyzed_segments: List[Dict], 
+        min_segment_duration: float = 30.0,
+        max_segment_duration: float = 300.0,
+        topic_confidence_threshold: float = 0.7,
+        preserve_natural_breaks: bool = True
+    ) -> List[Dict]:
         """
         Group consecutive segments that share the same topic into larger segments.
 
         This method iterates through the analyzed segments and merges adjacent
-        segments if their assigned topic is the same.
+        segments if their assigned topic is the same, while respecting duration
+        constraints and natural content boundaries.
 
         Args:
             analyzed_segments: A list of segments that have been analyzed for
                 their topics.
+            min_segment_duration: Minimum duration for merged segments in seconds.
+            max_segment_duration: Maximum duration for merged segments in seconds.
+            topic_confidence_threshold: Minimum confidence to merge segments.
+            preserve_natural_breaks: Whether to respect natural pauses/breaks.
 
         Returns:
             A new list of segments, where consecutive segments with the same
-            topic have been merged.
+            topic have been merged according to the specified constraints.
         """
         if not analyzed_segments:
             return []
@@ -319,28 +331,237 @@ class TopicAnalyzer:
         current_segment = analyzed_segments[0].copy()
         current_segment["content"] = [current_segment["content"]]
         current_segment["segment_id"] = 1
+        current_segment["original_segments"] = [analyzed_segments[0]]
+        current_segment["merge_info"] = {
+            "segments_merged": 1,
+            "merge_confidence": current_segment.get("topic_confidence", 1.0)
+        }
 
         for next_seg in analyzed_segments[1:]:
-            if next_seg["topic"] == current_segment["topic"]:
+            current_duration = current_segment["end"] - current_segment["start"]
+            next_duration = next_seg["end"] - next_seg["start"]
+            potential_duration = next_seg["end"] - current_segment["start"]
+            
+            # Calculate average confidence for merging decision
+            current_conf = current_segment.get("topic_confidence", 1.0)
+            next_conf = next_seg.get("topic_confidence", 1.0)
+            avg_confidence = (current_conf + next_conf) / 2
+            
+            # Check if we should merge these segments
+            should_merge = self._should_merge_segments(
+                current_segment, 
+                next_seg, 
+                potential_duration,
+                min_segment_duration,
+                max_segment_duration,
+                topic_confidence_threshold,
+                preserve_natural_breaks
+            )
+            
+            if should_merge:
+                # Merge the segments
                 current_segment["end"] = next_seg["end"]
                 current_segment["content"].append(next_seg["content"])
+                current_segment["original_segments"].append(next_seg)
+                current_segment["merge_info"]["segments_merged"] += 1
+                current_segment["merge_info"]["merge_confidence"] = min(
+                    current_segment["merge_info"]["merge_confidence"], 
+                    avg_confidence
+                )
+                
+                # Update keywords by merging sets
+                if "keywords" in current_segment and "keywords" in next_seg:
+                    current_segment["keywords"] = list(set(current_segment["keywords"] + next_seg["keywords"]))
+                
+                logger.debug(f"Merged segments: {current_segment['topic']} duration={potential_duration:.1f}s")
             else:
+                # Finalize current segment and start a new one
                 current_segment["content"] = " ".join(current_segment["content"])
+                current_segment["duration"] = current_segment["end"] - current_segment["start"]
                 final_segments.append(current_segment)
+                
+                # Start new segment
                 current_segment = next_seg.copy()
                 current_segment["content"] = [current_segment["content"]]
                 current_segment["segment_id"] = len(final_segments) + 1
+                current_segment["original_segments"] = [next_seg]
+                current_segment["merge_info"] = {
+                    "segments_merged": 1,
+                    "merge_confidence": next_seg.get("topic_confidence", 1.0)
+                }
 
+        # Finalize the last segment
         current_segment["content"] = " ".join(current_segment["content"])
+        current_segment["duration"] = current_segment["end"] - current_segment["start"]
         final_segments.append(current_segment)
+        
+        # Post-process to handle very short segments
+        final_segments = self._post_process_segments(final_segments, min_segment_duration)
+        
+        logger.info(f"Topic segmentation: {len(analyzed_segments)} → {len(final_segments)} segments")
         return final_segments
+    
+    def _should_merge_segments(
+        self,
+        current_segment: Dict,
+        next_segment: Dict,
+        potential_duration: float,
+        min_segment_duration: float,
+        max_segment_duration: float,
+        topic_confidence_threshold: float,
+        preserve_natural_breaks: bool
+    ) -> bool:
+        """
+        Determine if two segments should be merged based on various criteria.
+        
+        Args:
+            current_segment: The current segment being built
+            next_segment: The next segment to potentially merge
+            potential_duration: Duration if segments were merged
+            min_segment_duration: Minimum allowed segment duration
+            max_segment_duration: Maximum allowed segment duration
+            topic_confidence_threshold: Minimum confidence for merging
+            preserve_natural_breaks: Whether to respect natural breaks
+            
+        Returns:
+            True if segments should be merged, False otherwise
+        """
+        # Must have the same topic
+        if current_segment["topic"] != next_segment["topic"]:
+            return False
+        
+        # Check duration constraints
+        if potential_duration > max_segment_duration:
+            return False
+        
+        # Check confidence threshold
+        current_conf = current_segment.get("topic_confidence", 1.0)
+        next_conf = next_segment.get("topic_confidence", 1.0)
+        if min(current_conf, next_conf) < topic_confidence_threshold:
+            return False
+        
+        # Check for natural breaks if enabled
+        if preserve_natural_breaks:
+            # Look for natural pause indicators
+            current_content = current_segment["content"][-1] if isinstance(current_segment["content"], list) else current_segment["content"]
+            next_content = next_segment["content"]
+            
+            # Check for sentence endings, long pauses, etc.
+            if self._has_natural_break(current_content, next_content):
+                current_duration = current_segment["end"] - current_segment["start"]
+                # Only respect natural breaks if current segment is already reasonably long
+                if current_duration >= min_segment_duration:
+                    return False
+        
+        return True
+    
+    def _has_natural_break(self, current_content: str, next_content: str) -> bool:
+        """
+        Check if there's a natural break between two content segments.
+        
+        Args:
+            current_content: Content of the current segment
+            next_content: Content of the next segment
+            
+        Returns:
+            True if there's a natural break, False otherwise
+        """
+        if not current_content or not next_content:
+            return False
+        
+        # Check for sentence endings
+        sentence_endings = ['. ', '? ', '! ', '.\n', '?\n', '!\n']
+        if any(current_content.rstrip().endswith(ending.strip()) for ending in sentence_endings):
+            return True
+        
+        # Check for topic transition phrases
+        transition_phrases = [
+            'moving on', 'next', 'now let\'s', 'switching to', 'turning to',
+            'in conclusion', 'to summarize', 'finally', 'lastly'
+        ]
+        
+        current_lower = current_content.lower()
+        next_lower = next_content.lower()
+        
+        for phrase in transition_phrases:
+            if phrase in current_lower or phrase in next_lower:
+                return True
+        
+        return False
+    
+    def _post_process_segments(self, segments: List[Dict], min_segment_duration: float) -> List[Dict]:
+        """
+        Post-process segments to handle very short segments.
+        
+        Args:
+            segments: List of segments to process
+            min_segment_duration: Minimum segment duration
+            
+        Returns:
+            Processed segments with short segments merged or removed
+        """
+        if not segments:
+            return segments
+        
+        processed_segments = []
+        
+        for segment in segments:
+            duration = segment.get("duration", segment["end"] - segment["start"])
+            
+            if duration < min_segment_duration:
+                # Try to merge with previous segment if topics are similar
+                if (processed_segments and 
+                    processed_segments[-1]["topic"] == segment["topic"]):
+                    
+                    # Merge with previous segment
+                    prev_segment = processed_segments[-1]
+                    prev_segment["end"] = segment["end"]
+                    prev_segment["content"] += " " + segment["content"]
+                    prev_segment["duration"] = prev_segment["end"] - prev_segment["start"]
+                    prev_segment["original_segments"].extend(segment["original_segments"])
+                    prev_segment["merge_info"]["segments_merged"] += segment["merge_info"]["segments_merged"]
+                    
+                    logger.debug(f"Merged short segment into previous: {segment['topic']} duration={duration:.1f}s")
+                    continue
+                
+                # If can't merge with previous, try to merge with next
+                # (This would require looking ahead, skip for now)
+                logger.warning(f"Very short segment kept: {segment['topic']} duration={duration:.1f}s")
+            
+            processed_segments.append(segment)
+        
+        return processed_segments
 
 
 def process_transcript(
-    transcript: List[Dict], project_path: str, num_topics: int, register: str, debug: bool = False, progress_tracker: ProgressTracker = None
+    transcript: List[Dict], 
+    project_path: str, 
+    num_topics: int, 
+    register: str, 
+    debug: bool = False, 
+    progress_tracker: ProgressTracker = None,
+    min_segment_duration: float = 30.0,
+    max_segment_duration: float = 300.0,
+    topic_confidence_threshold: float = 0.7,
+    preserve_natural_breaks: bool = True
 ) -> Dict:
     """
     Processes a transcript to model topics and create topic-based segments.
+    
+    Args:
+        transcript: List of transcript segments with timing information
+        project_path: Path to the project directory
+        num_topics: Number of topics to identify
+        register: Analysis register for tailoring the analysis
+        debug: Enable debug mode for detailed logging
+        progress_tracker: Optional progress tracker
+        min_segment_duration: Minimum duration for merged segments in seconds
+        max_segment_duration: Maximum duration for merged segments in seconds
+        topic_confidence_threshold: Minimum confidence to merge segments
+        preserve_natural_breaks: Whether to respect natural pauses/breaks
+        
+    Returns:
+        Dictionary containing topics and merged segments
     """
     if progress_tracker:
         progress_tracker.update_phase_progress(0.0, "Initializing topic analyzer...")
@@ -357,7 +578,13 @@ def process_transcript(
     # Group segments by topic
     if progress_tracker:
         progress_tracker.update_phase_progress(80.0, "Grouping segments by topic...")
-    topic_segments = analyzer.segment_by_topic(analyzed_segments)
+    topic_segments = analyzer.segment_by_topic(
+        analyzed_segments,
+        min_segment_duration=min_segment_duration,
+        max_segment_duration=max_segment_duration,
+        topic_confidence_threshold=topic_confidence_threshold,
+        preserve_natural_breaks=preserve_natural_breaks
+    )
 
     # Create a summary of topics
     topic_summary = {}

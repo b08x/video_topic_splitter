@@ -180,6 +180,10 @@ def process_video(
     frames_per_scene: int = 1,
     register: str = "it-workflow",
     progress_json: bool = False,
+    min_segment_duration: float = 30.0,
+    max_segment_duration: float = 300.0,
+    topic_confidence_threshold: float = 0.7,
+    preserve_natural_breaks: bool = True,
 ) -> dict:
     """
     Execute the main video processing pipeline.
@@ -206,6 +210,10 @@ def process_video(
         frames_per_scene: The number of frames to analyze per video scene.
         register: The analysis register for tailoring AI analysis.
         progress_json: If True, outputs progress updates in JSON format.
+        min_segment_duration: Minimum duration for merged segments in seconds.
+        max_segment_duration: Maximum duration for merged segments in seconds.
+        topic_confidence_threshold: Minimum confidence to merge segments.
+        preserve_natural_breaks: Whether to respect natural pauses/breaks.
 
     Returns:
         A dictionary containing the comprehensive results of the analysis,
@@ -275,7 +283,16 @@ def process_video(
 
             # Topic modeling and transcript processing
             topic_results = process_transcript(
-                transcript, project_path, num_topics, register=register, debug=False, progress_tracker=progress_tracker
+                transcript, 
+                project_path, 
+                num_topics, 
+                register=register, 
+                debug=False, 
+                progress_tracker=progress_tracker,
+                min_segment_duration=min_segment_duration,
+                max_segment_duration=max_segment_duration,
+                topic_confidence_threshold=topic_confidence_threshold,
+                preserve_natural_breaks=preserve_natural_breaks
             )
 
             # Save transcript files in organized structure
