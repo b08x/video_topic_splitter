@@ -17,6 +17,7 @@ from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from difflib import SequenceMatcher
 
 from ..constants import CHECKPOINTS
 from ..project import save_checkpoint
@@ -303,7 +304,9 @@ class TopicAnalyzer:
         min_segment_duration: float = 30.0,
         max_segment_duration: float = 300.0,
         topic_confidence_threshold: float = 0.7,
-        preserve_natural_breaks: bool = True
+        preserve_natural_breaks: bool = True,
+        topic_similarity_threshold: float = 0.6,
+        max_merge_passes: int = 3
     ) -> List[Dict]:
         """
         Group consecutive segments that share the same topic into larger segments.
@@ -396,7 +399,12 @@ class TopicAnalyzer:
         final_segments.append(current_segment)
         
         # Post-process to handle very short segments
-        final_segments = self._post_process_segments(final_segments, min_segment_duration)
+        final_segments = self._post_process_segments(
+            final_segments, 
+            min_segment_duration, 
+            topic_similarity_threshold, 
+            max_merge_passes
+        )
         
         logger.info(f"Topic segmentation: {len(analyzed_segments)} → {len(final_segments)} segments")
         return final_segments
@@ -489,48 +497,194 @@ class TopicAnalyzer:
         
         return False
     
-    def _post_process_segments(self, segments: List[Dict], min_segment_duration: float) -> List[Dict]:
+    def _calculate_topic_similarity(self, topic1: str, topic2: str) -> float:
         """
-        Post-process segments to handle very short segments.
+        Calculate similarity between two topics using string similarity.
+        
+        Args:
+            topic1: First topic string
+            topic2: Second topic string
+            
+        Returns:
+            Similarity score between 0 and 1
+        """
+        if not topic1 or not topic2:
+            return 0.0
+        
+        # Use SequenceMatcher for string similarity
+        return SequenceMatcher(None, topic1.lower(), topic2.lower()).ratio()
+    
+    def _find_best_merge_candidate(self, segments: List[Dict], current_idx: int, 
+                                 min_segment_duration: float, 
+                                 topic_similarity_threshold: float = 0.6) -> Optional[int]:
+        """
+        Find the best segment to merge with the current short segment.
+        
+        Args:
+            segments: List of all segments
+            current_idx: Index of current short segment
+            min_segment_duration: Minimum segment duration
+            topic_similarity_threshold: Minimum similarity for merging
+            
+        Returns:
+            Index of best merge candidate or None
+        """
+        current_segment = segments[current_idx]
+        current_topic = current_segment["topic"]
+        best_idx = None
+        best_similarity = 0.0
+        
+        # Check previous segment
+        if current_idx > 0:
+            prev_segment = segments[current_idx - 1]
+            prev_topic = prev_segment["topic"]
+            
+            # Exact match gets priority
+            if prev_topic == current_topic:
+                return current_idx - 1
+            
+            # Check similarity
+            similarity = self._calculate_topic_similarity(current_topic, prev_topic)
+            if similarity >= topic_similarity_threshold and similarity > best_similarity:
+                best_similarity = similarity
+                best_idx = current_idx - 1
+        
+        # Check next segment
+        if current_idx < len(segments) - 1:
+            next_segment = segments[current_idx + 1]
+            next_topic = next_segment["topic"]
+            
+            # Exact match gets priority
+            if next_topic == current_topic:
+                return current_idx + 1
+            
+            # Check similarity
+            similarity = self._calculate_topic_similarity(current_topic, next_topic)
+            if similarity >= topic_similarity_threshold and similarity > best_similarity:
+                best_similarity = similarity
+                best_idx = current_idx + 1
+        
+        return best_idx
+    
+    def _post_process_segments(self, segments: List[Dict], min_segment_duration: float, 
+                             topic_similarity_threshold: float = 0.6,
+                             max_merge_passes: int = 3) -> List[Dict]:
+        """
+        Post-process segments to handle very short segments using enhanced bidirectional merging.
         
         Args:
             segments: List of segments to process
             min_segment_duration: Minimum segment duration
+            topic_similarity_threshold: Minimum similarity for merging topics
+            max_merge_passes: Maximum number of merge passes
             
         Returns:
-            Processed segments with short segments merged or removed
+            Processed segments with short segments merged using bidirectional logic
         """
         if not segments:
             return segments
         
-        processed_segments = []
+        # Create a working copy with indices for bidirectional merging
+        working_segments = segments.copy()
+        merge_statistics = {
+            "initial_segments": len(segments),
+            "short_segments_found": 0,
+            "segments_merged": 0,
+            "exact_topic_merges": 0,
+            "similarity_merges": 0,
+            "segments_kept": 0
+        }
         
-        for segment in segments:
-            duration = segment.get("duration", segment["end"] - segment["start"])
+        # Multi-pass merging to catch all opportunities
+        for pass_num in range(max_merge_passes):
+            segments_merged_this_pass = 0
+            i = 0
             
-            if duration < min_segment_duration:
-                # Try to merge with previous segment if topics are similar
-                if (processed_segments and 
-                    processed_segments[-1]["topic"] == segment["topic"]):
-                    
-                    # Merge with previous segment
-                    prev_segment = processed_segments[-1]
-                    prev_segment["end"] = segment["end"]
-                    prev_segment["content"] += " " + segment["content"]
-                    prev_segment["duration"] = prev_segment["end"] - prev_segment["start"]
-                    prev_segment["original_segments"].extend(segment["original_segments"])
-                    prev_segment["merge_info"]["segments_merged"] += segment["merge_info"]["segments_merged"]
-                    
-                    logger.debug(f"Merged short segment into previous: {segment['topic']} duration={duration:.1f}s")
-                    continue
+            while i < len(working_segments):
+                segment = working_segments[i]
+                duration = segment.get("duration", segment["end"] - segment["start"])
                 
-                # If can't merge with previous, try to merge with next
-                # (This would require looking ahead, skip for now)
-                logger.warning(f"Very short segment kept: {segment['topic']} duration={duration:.1f}s")
+                if duration < min_segment_duration:
+                    merge_statistics["short_segments_found"] += 1
+                    
+                    # Find best merge candidate
+                    best_merge_idx = self._find_best_merge_candidate(
+                        working_segments, i, min_segment_duration, topic_similarity_threshold
+                    )
+                    
+                    if best_merge_idx is not None:
+                        merge_target = working_segments[best_merge_idx]
+                        current_topic = segment["topic"]
+                        target_topic = merge_target["topic"]
+                        
+                        # Determine merge direction and perform merge
+                        if best_merge_idx < i:
+                            # Merge with previous segment
+                            self._merge_segments(merge_target, segment)
+                            working_segments.pop(i)
+                            i -= 1  # Adjust index since we removed a segment
+                        else:
+                            # Merge with next segment
+                            self._merge_segments(segment, merge_target)
+                            working_segments.pop(best_merge_idx)
+                            # Don't adjust i since we removed a segment ahead
+                        
+                        # Update statistics
+                        merge_statistics["segments_merged"] += 1
+                        segments_merged_this_pass += 1
+                        
+                        if current_topic == target_topic:
+                            merge_statistics["exact_topic_merges"] += 1
+                            logger.debug(f"Merged short segment (exact topic match): {current_topic} duration={duration:.1f}s")
+                        else:
+                            merge_statistics["similarity_merges"] += 1
+                            similarity = self._calculate_topic_similarity(current_topic, target_topic)
+                            logger.debug(f"Merged short segment (similarity={similarity:.2f}): '{current_topic}' → '{target_topic}' duration={duration:.1f}s")
+                    else:
+                        # No merge candidate found, keep the segment
+                        merge_statistics["segments_kept"] += 1
+                        logger.warning(f"Very short segment kept (no merge candidate): {segment['topic']} duration={duration:.1f}s")
+                        i += 1
+                else:
+                    i += 1
             
-            processed_segments.append(segment)
+            # If no merges in this pass, we're done
+            if segments_merged_this_pass == 0:
+                break
+                
+            logger.debug(f"Merge pass {pass_num + 1}: {segments_merged_this_pass} segments merged")
         
-        return processed_segments
+        # Log final statistics
+        final_count = len(working_segments)
+        logger.info(f"Post-processing complete: {merge_statistics['initial_segments']} → {final_count} segments "
+                   f"({merge_statistics['segments_merged']} merged, {merge_statistics['segments_kept']} kept)")
+        
+        return working_segments
+    
+    def _merge_segments(self, target_segment: Dict, source_segment: Dict) -> None:
+        """
+        Merge source segment into target segment.
+        
+        Args:
+            target_segment: Segment to merge into (modified in place)
+            source_segment: Segment to merge from
+        """
+        # Update temporal boundaries
+        target_segment["start"] = min(target_segment["start"], source_segment["start"])
+        target_segment["end"] = max(target_segment["end"], source_segment["end"])
+        target_segment["duration"] = target_segment["end"] - target_segment["start"]
+        
+        # Merge content
+        target_segment["content"] += " " + source_segment["content"]
+        
+        # Merge metadata
+        target_segment["original_segments"].extend(source_segment["original_segments"])
+        target_segment["merge_info"]["segments_merged"] += source_segment["merge_info"]["segments_merged"]
+        
+        # Update confidence to minimum of both segments
+        target_confidence = target_segment.get("confidence", 1.0)
+        source_confidence = source_segment.get("confidence", 1.0)
+        target_segment["confidence"] = min(target_confidence, source_confidence)
 
 
 def process_transcript(
@@ -543,7 +697,9 @@ def process_transcript(
     min_segment_duration: float = 30.0,
     max_segment_duration: float = 300.0,
     topic_confidence_threshold: float = 0.7,
-    preserve_natural_breaks: bool = True
+    preserve_natural_breaks: bool = True,
+    topic_similarity_threshold: float = 0.6,
+    max_merge_passes: int = 3
 ) -> Dict:
     """
     Processes a transcript to model topics and create topic-based segments.
@@ -583,7 +739,9 @@ def process_transcript(
         min_segment_duration=min_segment_duration,
         max_segment_duration=max_segment_duration,
         topic_confidence_threshold=topic_confidence_threshold,
-        preserve_natural_breaks=preserve_natural_breaks
+        preserve_natural_breaks=preserve_natural_breaks,
+        topic_similarity_threshold=topic_similarity_threshold,
+        max_merge_passes=max_merge_passes
     )
 
     # Create a summary of topics

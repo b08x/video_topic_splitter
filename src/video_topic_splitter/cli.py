@@ -194,6 +194,18 @@ def main() -> None:
         action="store_false",
         help="Ignore natural pauses/breaks when merging segments.",
     )
+    parser.add_argument(
+        "--topic-similarity-threshold",
+        type=float,
+        default=0.6,
+        help="Minimum similarity threshold for merging different topics (default: 0.6).",
+    )
+    parser.add_argument(
+        "--max-merge-passes",
+        type=int,
+        default=3,
+        help="Maximum number of merge passes for segment consolidation (default: 3).",
+    )
 
     args = parser.parse_args()
     load_dotenv()
@@ -249,6 +261,8 @@ def main() -> None:
                 max_segment_duration=args.max_segment_duration,
                 topic_confidence_threshold=args.topic_confidence_threshold,
                 preserve_natural_breaks=args.preserve_natural_breaks,
+                topic_similarity_threshold=args.topic_similarity_threshold,
+                max_merge_passes=args.max_merge_passes,
             )
 
         # Check if results came from a completed checkpoint

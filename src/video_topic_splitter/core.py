@@ -184,6 +184,8 @@ def process_video(
     max_segment_duration: float = 300.0,
     topic_confidence_threshold: float = 0.7,
     preserve_natural_breaks: bool = True,
+    topic_similarity_threshold: float = 0.6,
+    max_merge_passes: int = 3,
 ) -> dict:
     """
     Execute the main video processing pipeline.
@@ -292,7 +294,9 @@ def process_video(
                 min_segment_duration=min_segment_duration,
                 max_segment_duration=max_segment_duration,
                 topic_confidence_threshold=topic_confidence_threshold,
-                preserve_natural_breaks=preserve_natural_breaks
+                preserve_natural_breaks=preserve_natural_breaks,
+                topic_similarity_threshold=topic_similarity_threshold,
+                max_merge_passes=max_merge_passes
             )
 
             # Save transcript files in organized structure
