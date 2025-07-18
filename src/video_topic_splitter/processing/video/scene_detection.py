@@ -4,7 +4,7 @@
 import logging
 import os
 import subprocess
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import imagehash
 from PIL import Image
