@@ -44,7 +44,7 @@ The Video Topic Splitter is a powerful tool designed to automatically segment vi
 It utilizes advanced AI models and techniques, including:
 
 - **Speech-to-Text:** Accurate transcription of video audio via OpenAI's Whisper model.
-- **Topic Modeling:** Identification of distinct topics within the transcribed text.
+- **Topic Modeling:** Modular identification of distinct topics within the transcribed text using a sophisticated multi-component architecture.
 - **Visual Scene Detection:** Automated detection of scene changes using `PySceneDetect`.
 - **Unique Frame Extraction:** Intelligent selection of visually unique frames from each scene using `ImageHash` to avoid redundancy.
 - **Contextual Frame Analysis:** In-depth analysis of extracted frames using Google's Gemini model.
@@ -60,7 +60,7 @@ This makes it ideal for analyzing recordings of technical tutorials, meetings, p
   - Allows providing an external transcript file (`.srt`, `.vtt`, `.json`) to bypass the transcription step.
 - **Advanced Scene Detection:** Employs `PySceneDetect` to accurately identify scene boundaries in the video.
 - **Duplicate Frame Prevention:** Uses `ImageHash` to ensure that only visually unique frames from each scene are selected for analysis, improving efficiency.
-- **Topic Modeling (OpenRouter):** Identifies the primary topic discussed in each text segment.
+- **Advanced Topic Modeling (OpenRouter):** Modular topic analysis system with configurable components for intelligent segmentation, caching, and robust JSON parsing.
 - **Software Detection (OCR):** Identifies software applications visible in video frames through text extraction.
 - **Gemini Analysis (Google):** Offers in-depth summaries and contextual understanding of each video frame.
 - **Robust Checkpointing:** Saves progress at each major stage, allowing resumption from interruptions.
@@ -86,7 +86,7 @@ This makes it ideal for analyzing recordings of technical tutorials, meetings, p
 
 - **Transcription:** OpenAI Whisper API (via `curl`).
 - **Visual Analysis:** Google's Gemini API.
-- **Topic Modeling:** OpenRouter's `microsoft/phi-4` model.
+- **Topic Modeling:** Modular architecture with OpenRouter's `microsoft/phi-4` model, featuring separated concerns for configuration, caching, batching, and response parsing.
 - **Scene Detection:** `PySceneDetect`.
 - **Image Hashing:** `ImageHash`.
 - **Audio Processing:** `ffmpeg`, `ffmpeg-normalize`, `unsilence`.
@@ -171,7 +171,14 @@ The core logic resides in `video_topic_splitter.core.process_video`.
 
 ### 4. Topic Modeling
 
-- The `TopicAnalyzer` class analyzes the transcript to identify topic shifts and generate segment metadata (start/end times, dominant topic, keywords).
+- **Modular Architecture:** The topic modeling system has been refactored into focused components:
+  - **TopicAnalyzerConfig:** Centralized configuration management with validation
+  - **ResponseParser:** Robust JSON parsing with multiple fallback strategies
+  - **AsyncCache:** Thread-safe async caching with LRU eviction
+  - **SegmentBatcher:** Smart batching logic with similarity-based boundary detection
+  - **TopicAnalyzer:** Core analysis orchestration using OpenRouter's `microsoft/phi-4` model
+- **Enhanced Features:** Configurable parameters, debug logging, progress tracking, and improved error handling
+- **Output:** Generates segment metadata with start/end times, dominant topics, keywords, and confidence scores
 
 ### 5. Scene-Based Visual Analysis
 
@@ -188,6 +195,28 @@ The core logic resides in `video_topic_splitter.core.process_video`.
 - A final checkpoint is saved to mark the process as complete.
 
 ## Project Structure 📂
+
+### Code Architecture
+
+The topic modeling system has been refactored into a modular architecture:
+
+```
+src/video_topic_splitter/analysis/
+├── topic_modeling.py          # Main interface and orchestration
+├── topic_analyzer_config.py   # Configuration management with validation
+├── response_parser.py         # JSON parsing with multiple fallback strategies
+├── async_cache.py            # Thread-safe async caching with LRU eviction
+├── segment_batcher.py        # Smart batching with similarity analysis
+└── topic_analyzer.py         # Core analysis engine with OpenRouter integration
+```
+
+**Key Benefits:**
+- **Maintainability:** Each module has a single responsibility
+- **Testability:** Components can be tested independently
+- **Extensibility:** Easy to add new parsers or cache implementations
+- **Configuration-Driven:** Centralized configuration with validation
+
+### Output Directory Structure
 
 The tool creates a project directory with the following structure:
 
