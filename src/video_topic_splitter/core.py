@@ -8,9 +8,12 @@ orchestrates the workflow from input video to final structured output.
 """
 
 import json
+import logging
 import os
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 from .analysis.topic_modeling import process_transcript
 from .analysis.segment_analysis import SegmentProcessor
