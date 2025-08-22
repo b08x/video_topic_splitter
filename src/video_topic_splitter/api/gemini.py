@@ -3,17 +3,22 @@
 """
 Gemini API integration for multimodal analysis.
 
-This module provides a simple interface to the Google Gemini API, allowing
-for the analysis of text prompts and images. It handles API key configuration
-and the construction of requests to the Gemini model.
+This module provides both single-request and batch processing interfaces to the 
+Google Gemini API for analyzing text prompts and images. It includes optimized 
+batch processing capabilities for improved performance and cost efficiency.
 """
 
 import os
+import time
+import logging
+from typing import List, Dict, Any, Optional, Union
+from PIL import Image
 
 import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 # Configure Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
@@ -46,3 +51,261 @@ def analyze_with_gemini(prompt, image=None):
     else:
         response = model.generate_content(prompt)
     return response.text
+
+
+def batch_analyze_images_with_gemini(
+    image_analysis_requests: List[Dict[str, Any]], 
+    progress_callback: Optional[callable] = None
+) -> List[Dict[str, Any]]:
+    """
+    Efficiently analyze multiple images using Gemini API batch processing.
+    
+    This function optimizes performance by using Google's Gemini Batch Mode API,
+    which processes multiple image analysis requests in a single batch operation,
+    reducing network latency and providing 50% cost savings.
+    
+    Args:
+        image_analysis_requests: List of dictionaries, each containing:
+            - 'prompt': str - The analysis prompt
+            - 'image': PIL.Image or str - Image object or path to image
+            - 'frame_id': str - Unique identifier for the frame
+            - 'metadata': dict - Additional metadata (optional)
+        progress_callback: Optional callback function for progress updates
+        
+    Returns:
+        List of dictionaries containing analysis results:
+            - 'frame_id': str - The original frame identifier
+            - 'analysis': str - Gemini's analysis result
+            - 'metadata': dict - Original metadata plus processing info
+            - 'error': str - Error message if analysis failed (optional)
+            
+    Raises:
+        ValueError: If API key is not configured or requests are invalid
+    """
+    if not os.getenv("GEMINI_API_KEY"):
+        raise ValueError("GEMINI_API_KEY environment variable is not set")
+    
+    if not image_analysis_requests:
+        return []
+    
+    logger.info(f"Starting batch analysis of {len(image_analysis_requests)} images")
+    
+    try:
+        # Initialize Gemini client for batch processing
+        client = genai.Client()
+        model_name = "models/gemini-2.0-flash"
+        
+        # Build batch requests
+        batch_requests = []
+        frame_id_mapping = {}
+        
+        for i, request in enumerate(image_analysis_requests):
+            frame_id = request.get('frame_id', f'frame_{i}')
+            prompt = request['prompt']
+            image = request['image']
+            
+            # Handle image loading if path is provided
+            if isinstance(image, str):
+                try:
+                    image = Image.open(image)
+                except Exception as e:
+                    logger.error(f"Failed to load image {image}: {e}")
+                    continue
+            
+            # Create batch request content
+            content_parts = [{'text': prompt}, image]
+            
+            batch_request = {
+                'contents': [{
+                    'parts': content_parts,
+                    'role': 'user'
+                }]
+            }
+            
+            batch_requests.append(batch_request)
+            frame_id_mapping[i] = {
+                'frame_id': frame_id,
+                'metadata': request.get('metadata', {})
+            }
+        
+        if not batch_requests:
+            logger.warning("No valid batch requests to process")
+            return []
+        
+        # Submit batch job
+        logger.info(f"Submitting batch job with {len(batch_requests)} requests")
+        
+        if progress_callback:
+            progress_callback(10.0, "Submitting batch job to Gemini API")
+        
+        # Use inline requests for smaller batches (under 20MB)
+        # For larger batches, the API automatically handles optimization
+        batch_job = client.batches.create(
+            model=model_name,
+            src=batch_requests,
+            config={'display_name': f"video-frame-batch-{int(time.time())}"}
+        )
+        
+        # Wait for batch completion with progress updates
+        logger.info(f"Batch job created: {batch_job.name}")
+        
+        if progress_callback:
+            progress_callback(20.0, "Batch job submitted, waiting for completion")
+        
+        # Poll for completion with configurable timing
+        from ..analysis.batch_config import get_batch_config
+        config = get_batch_config()
+        max_wait_time = config.max_batch_wait_time
+        poll_interval = config.poll_interval
+        elapsed_time = 0
+        
+        while elapsed_time < max_wait_time:
+            job_status = client.batches.get(batch_job.name)
+            
+            if job_status.state == 'SUCCEEDED':
+                logger.info("Batch job completed successfully")
+                break
+            elif job_status.state == 'FAILED':
+                raise Exception(f"Batch job failed: {job_status.error}")
+            elif job_status.state in ['CANCELLED', 'EXPIRED']:
+                raise Exception(f"Batch job {job_status.state.lower()}")
+            
+            # Update progress based on elapsed time
+            if progress_callback:
+                progress_pct = min(80.0, 20.0 + (elapsed_time / max_wait_time) * 60.0)
+                progress_callback(progress_pct, f"Processing batch job... ({elapsed_time}s elapsed)")
+            
+            time.sleep(poll_interval)
+            elapsed_time += poll_interval
+        
+        if elapsed_time >= max_wait_time:
+            # For longer jobs, we could implement a different strategy
+            # For now, fall back to individual requests
+            logger.warning("Batch job timed out, falling back to individual requests")
+            return _fallback_individual_requests(image_analysis_requests, progress_callback)
+        
+        # Retrieve and process results
+        if progress_callback:
+            progress_callback(85.0, "Retrieving batch results")
+        
+        job_results = client.batches.get(batch_job.name)
+        responses = job_results.inline_responses if hasattr(job_results, 'inline_responses') else []
+        
+        # Process responses
+        results = []
+        for i, response in enumerate(responses):
+            frame_info = frame_id_mapping.get(i, {'frame_id': f'frame_{i}', 'metadata': {}})
+            
+            try:
+                if hasattr(response, 'response') and response.response:
+                    analysis_text = response.response.candidates[0].content.parts[0].text
+                    
+                    results.append({
+                        'frame_id': frame_info['frame_id'],
+                        'analysis': analysis_text,
+                        'metadata': {
+                            **frame_info['metadata'],
+                            'processing_method': 'batch',
+                            'batch_job_id': batch_job.name,
+                            'processing_time': time.time()
+                        }
+                    })
+                else:
+                    # Handle errors in batch response
+                    error_msg = getattr(response, 'error', 'Unknown batch processing error')
+                    results.append({
+                        'frame_id': frame_info['frame_id'],
+                        'error': str(error_msg),
+                        'metadata': frame_info['metadata']
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Error processing batch response {i}: {e}")
+                results.append({
+                    'frame_id': frame_info['frame_id'],
+                    'error': f"Failed to process batch response: {e}",
+                    'metadata': frame_info['metadata']
+                })
+        
+        if progress_callback:
+            progress_callback(100.0, f"Batch processing completed for {len(results)} images")
+        
+        logger.info(f"Batch analysis completed: {len(results)} results")
+        return results
+        
+    except Exception as e:
+        logger.error(f"Batch processing failed: {e}")
+        # Fall back to individual requests if batch fails
+        logger.info("Falling back to individual request processing")
+        return _fallback_individual_requests(image_analysis_requests, progress_callback)
+
+
+def _fallback_individual_requests(
+    image_analysis_requests: List[Dict[str, Any]], 
+    progress_callback: Optional[callable] = None
+) -> List[Dict[str, Any]]:
+    """
+    Fallback method to process images individually if batch processing fails.
+    
+    This method maintains compatibility with the existing analyze_with_gemini function
+    while providing the same interface as batch processing.
+    
+    Args:
+        image_analysis_requests: List of image analysis request dictionaries
+        progress_callback: Optional progress callback function
+        
+    Returns:
+        List of analysis results in the same format as batch processing
+    """
+    results = []
+    total_requests = len(image_analysis_requests)
+    
+    logger.info(f"Processing {total_requests} images individually")
+    
+    for i, request in enumerate(image_analysis_requests):
+        try:
+            frame_id = request.get('frame_id', f'frame_{i}')
+            prompt = request['prompt']
+            image = request['image']
+            metadata = request.get('metadata', {})
+            
+            # Handle image loading if path is provided
+            if isinstance(image, str):
+                try:
+                    image = Image.open(image)
+                except Exception as e:
+                    results.append({
+                        'frame_id': frame_id,
+                        'error': f"Failed to load image: {e}",
+                        'metadata': metadata
+                    })
+                    continue
+            
+            # Analyze with individual request
+            analysis = analyze_with_gemini(prompt, image)
+            
+            results.append({
+                'frame_id': frame_id,
+                'analysis': analysis,
+                'metadata': {
+                    **metadata,
+                    'processing_method': 'individual',
+                    'processing_time': time.time()
+                }
+            })
+            
+            # Update progress
+            if progress_callback:
+                progress_pct = ((i + 1) / total_requests) * 100.0
+                progress_callback(progress_pct, f"Processed {i + 1}/{total_requests} images")
+                
+        except Exception as e:
+            logger.error(f"Error processing individual request {i}: {e}")
+            results.append({
+                'frame_id': request.get('frame_id', f'frame_{i}'),
+                'error': str(e),
+                'metadata': request.get('metadata', {})
+            })
+    
+    logger.info(f"Individual processing completed: {len(results)} results")
+    return results

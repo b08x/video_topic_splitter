@@ -18,15 +18,17 @@ logger = logging.getLogger(__name__)
 class SegmentProcessor:
     """Processes individual video segments with multimodal analysis."""
     
-    def __init__(self, progress_tracker: ProgressTracker = None):
+    def __init__(self, progress_tracker: ProgressTracker = None, enable_batch_optimization: bool = True):
         """
         Initialize the segment processor.
         
         Args:
             progress_tracker: Optional progress tracker
+            enable_batch_optimization: Enable cross-segment batch optimization for visual analysis
         """
         self.progress_tracker = progress_tracker
         self.multimodal_analyzer = MultimodalAnalyzer(progress_tracker)
+        self.enable_batch_optimization = enable_batch_optimization
     
     def process_segments(
         self,
@@ -71,15 +73,67 @@ class SegmentProcessor:
         
         if segments_to_process:
             logger.info(f"Processing {len(segments_to_process)} new segments (resuming from {len(completed_segments)} completed)")
+            
+            # Use batch optimization if enabled and processing multiple segments
+            if self.enable_batch_optimization and len(segments_to_process) > 1:
+                logger.info("Using cross-segment batch optimization for visual analysis")
+                try:
+                    # Process with batch optimization
+                    optimized_results = MultimodalAnalyzer.analyze_multiple_segments_optimized(
+                        video_path, segments_to_process, transcript_data, self.progress_tracker
+                    )
+                    
+                    # Add optimized results to processed segments
+                    processed_segments.extend(optimized_results)
+                    
+                    logger.info(f"Batch optimization completed for {len(optimized_results)} segments")
+                    
+                except Exception as e:
+                    logger.error(f"Batch optimization failed, falling back to individual processing: {e}")
+                    # Fall back to individual processing
+                    self._process_segments_individually(segments_to_process, video_path, transcript_data, processed_segments, len(completed_segments), len(segmented_files))
+            else:
+                # Process segments individually
+                logger.info("Processing segments individually (batch optimization disabled or single segment)")
+                self._process_segments_individually(segments_to_process, video_path, transcript_data, processed_segments, len(completed_segments), len(segmented_files))
         else:
             logger.info("All segments already completed, loading existing results")
         
+        # Sort by segment number to maintain order
+        processed_segments.sort(key=lambda x: x.get("segment_info", {}).get("segment_number", 0))
+        
+        if self.progress_tracker:
+            self.progress_tracker.complete_phase("Segment Analysis")
+        
+        logger.info(f"Completed processing {len(processed_segments)} segments")
+        return processed_segments
+    
+    def _process_segments_individually(
+        self,
+        segments_to_process: List[Dict[str, Any]],
+        video_path: str,
+        transcript_data: List[Dict[str, Any]],
+        processed_segments: List[Dict[str, Any]],
+        completed_count: int,
+        total_segments: int
+    ) -> None:
+        """
+        Process segments individually (fallback method when batch optimization is disabled or fails).
+        
+        Args:
+            segments_to_process: List of segments to process
+            video_path: Path to the original video file
+            transcript_data: Full transcript data
+            processed_segments: List to append results to
+            completed_count: Number of already completed segments
+            total_segments: Total number of segments
+        """
         for i, segment_info in enumerate(segments_to_process):
             segment_num = segment_info["segment_number"]
             topic_name = segment_info["topic"]
             
             # Calculate progress including already completed segments
-            total_processed = len(completed_segments) + i
+            total_processed = completed_count + i
             progress = (total_processed / total_segments) * 100
             
             if self.progress_tracker:
@@ -102,13 +156,14 @@ class SegmentProcessor:
                 analysis_results["processing_info"] = {
                     "processed_successfully": True,
                     "transcript_segments_count": len(transcript_segment),
-                    "files_validated": self._validate_segment_files(segment_info)
+                    "files_validated": self._validate_segment_files(segment_info),
+                    "batch_optimization_used": False
                 }
                 
                 processed_segments.append(analysis_results)
                 
                 # Save checkpoint after each successful segment
-                self._save_segment_checkpoint(segment_num, len(completed_segments) + i + 1, total_segments)
+                self._save_segment_checkpoint(segment_num, completed_count + i + 1, total_segments)
                 
             except Exception as e:
                 logger.error(f"Error processing segment {segment_num}: {e}")
@@ -122,19 +177,11 @@ class SegmentProcessor:
                     },
                     "processing_info": {
                         "processed_successfully": False,
-                        "error": str(e)
+                        "error": str(e),
+                        "batch_optimization_used": False
                     }
                 }
                 processed_segments.append(error_result)
-        
-        # Sort by segment number to maintain order
-        processed_segments.sort(key=lambda x: x.get("segment_info", {}).get("segment_number", 0))
-        
-        if self.progress_tracker:
-            self.progress_tracker.complete_phase("Segment Analysis")
-        
-        logger.info(f"Completed processing {len(processed_segments)} segments")
-        return processed_segments
     
     def _extract_transcript_for_segment(
         self, 

@@ -13,7 +13,7 @@ import time
 import cv2
 from PIL import Image, UnidentifiedImageError
 
-from ..api.gemini import analyze_with_gemini
+from ..api.gemini import analyze_with_gemini, batch_analyze_images_with_gemini
 from ..processing.video.video_segmentation import extract_segment_frames
 from ..processing.ocr.ocr_detection import detect_software_names
 from ..progress_tracker import ProgressTracker
@@ -25,15 +25,17 @@ logger = logging.getLogger(__name__)
 class MultimodalAnalyzer:
     """Simplified multimodal analyzer for topic segments."""
     
-    def __init__(self, progress_tracker: ProgressTracker = None):
+    def __init__(self, progress_tracker: ProgressTracker = None, enable_batch_processing: bool = True):
         """
         Initialize the multimodal analyzer.
         
         Args:
             progress_tracker: Optional progress tracker
+            enable_batch_processing: Enable optimized batch processing for visual analysis
         """
         self.progress_tracker = progress_tracker
         self.transcript_analyzer = EnhancedTranscriptAnalyzer()
+        self.enable_batch_processing = enable_batch_processing
     
     def analyze_segment(
         self,
@@ -99,6 +101,259 @@ class MultimodalAnalyzer:
         
         logger.info(f"Completed multimodal analysis for segment {segment_num}")
         return analysis_results
+    
+    @classmethod
+    def analyze_multiple_segments_optimized(
+        cls,
+        video_path: str,
+        segment_list: List[Dict[str, Any]],
+        transcript_data: List[Dict[str, Any]],
+        progress_tracker: ProgressTracker = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Analyze multiple video segments with cross-segment batch optimization.
+        
+        This method processes multiple segments together, collecting all frame
+        extraction and analysis requests before submitting them as optimized
+        batches to the Gemini API. This significantly reduces network overhead
+        and API costs while maintaining the same analysis quality.
+        
+        Args:
+            video_path: Path to the original video file
+            segment_list: List of segment information dictionaries
+            transcript_data: Full transcript data for the video
+            progress_tracker: Optional progress tracker
+            
+        Returns:
+            List of complete analysis results for all segments
+        """
+        from .visual_batch_processor import CrossSegmentBatchCoordinator
+        from .performance_monitor import record_visual_analysis_metrics
+        
+        logger.info(f"Starting optimized analysis of {len(segment_list)} segments")
+        
+        # Start timing for performance measurement
+        analysis_start_time = time.time()
+        
+        if progress_tracker:
+            progress_tracker.start_phase("Optimized Multimodal Analysis")
+        
+        # Initialize batch coordinator
+        batch_coordinator = CrossSegmentBatchCoordinator(progress_tracker)
+        
+        # Create individual analyzers for each segment (without batch processing)
+        analyzers = {}
+        segment_results = []
+        
+        try:
+            # Phase 1: Collect all frame extraction requests
+            if progress_tracker:
+                progress_tracker.update_phase_progress(5.0, "Extracting frames from all segments")
+            
+            all_frame_requests = []
+            segment_frame_mapping = {}
+            
+            for segment_info in segment_list:
+                segment_id = f"segment_{segment_info['segment_number']:03d}"
+                segment_frame_mapping[segment_id] = {
+                    'segment_info': segment_info,
+                    'frame_paths': []
+                }
+                
+                # Extract frames for this segment
+                from ..processing.video.video_segmentation import extract_segment_frames
+                
+                frames_dir = segment_info["paths"]["frames_dir"]
+                frame_paths = extract_segment_frames(
+                    video_path, frames_dir, 
+                    segment_info["start_time"], segment_info["end_time"], 
+                    num_frames=3, format="jpg", quality=90
+                )
+                
+                segment_frame_mapping[segment_id]['frame_paths'] = frame_paths
+                
+                # Register frames with batch coordinator
+                batch_coordinator.register_segment_frames(segment_id, len(frame_paths))
+                
+                # Create analysis requests for all frames in this segment
+                for i, frame_path in enumerate(frame_paths):
+                    prompt = """Analyze this screenshot from a technical session. Describe:
+1. What software/applications are visible
+2. What technical activity is being performed
+3. Any code, commands, or technical content visible
+4. User interface elements and their state
+5. Overall technical context and purpose
+
+Provide a concise technical analysis focusing on the educational/instructional content."""
+                    
+                    timestamp = segment_info["start_time"] + (
+                        i * (segment_info["end_time"] - segment_info["start_time"]) / (len(frame_paths) - 1)
+                    )
+                    
+                    batch_coordinator.submit_frame_for_analysis(
+                        segment_id=segment_id,
+                        frame_path=frame_path,
+                        frame_number=i + 1,
+                        timestamp=timestamp,
+                        prompt=prompt,
+                        metadata={
+                            'segment_number': segment_info['segment_number'],
+                            'topic': segment_info['topic'],
+                            'start_time': segment_info['start_time'],
+                            'end_time': segment_info['end_time']
+                        }
+                    )
+            
+            # Phase 2: Process all batches
+            if progress_tracker:
+                progress_tracker.update_phase_progress(30.0, "Processing visual analysis batches")
+            
+            batch_results = batch_coordinator.finalize_and_get_results()
+            performance_metrics = batch_results['performance_metrics']
+            
+            # Phase 3: Process each segment with optimized visual results
+            if progress_tracker:
+                progress_tracker.update_phase_progress(60.0, "Completing segment analysis")
+            
+            for i, segment_info in enumerate(segment_list):
+                segment_id = f"segment_{segment_info['segment_number']:03d}"
+                segment_num = segment_info["segment_number"]
+                
+                # Update progress
+                segment_progress = 60.0 + (i / len(segment_list)) * 35.0
+                if progress_tracker:
+                    progress_tracker.update_phase_progress(
+                        segment_progress, f"Processing segment {segment_num}"
+                    )
+                
+                # Create analyzer for this segment (without individual batch processing)
+                analyzer = cls(progress_tracker, enable_batch_processing=False)
+                
+                # Extract transcript for this segment
+                transcript_segment = analyzer._extract_transcript_for_segment_internal(
+                    transcript_data, segment_info
+                )
+                
+                # Perform transcript and audio analysis
+                transcript_analysis = analyzer._analyze_transcript(transcript_segment)
+                audio_analysis = analyzer._analyze_audio_content(segment_info["paths"]["audio_file"])
+                
+                # Get visual analysis results from batch processing
+                visual_frame_results = batch_coordinator.get_segment_analyses(segment_id)
+                
+                # Convert batch results to expected visual analysis format
+                visual_analysis = {
+                    "frames_extracted": len(segment_frame_mapping[segment_id]['frame_paths']),
+                    "frame_analyses": visual_frame_results,
+                    "visual_summary": analyzer._create_visual_summary(visual_frame_results),
+                    "frames_dir": segment_info["paths"]["frames_dir"],
+                    "performance_metrics": {
+                        "batch_processing_used": True,
+                        "batch_efficiency": performance_metrics.get('batching_efficiency', 0),
+                        "cost_savings_percent": performance_metrics.get('estimated_cost_savings', {}).get('estimated_savings_percentage', 0)
+                    }
+                }
+                
+                # Create complete analysis results
+                analysis_results = {
+                    "segment_info": {
+                        "segment_number": segment_num,
+                        "topic": segment_info["topic"],
+                        "start_time": segment_info["start_time"],
+                        "end_time": segment_info["end_time"],
+                        "duration": segment_info["duration"]
+                    },
+                    "transcript_analysis": transcript_analysis,
+                    "visual_analysis": visual_analysis,
+                    "audio_analysis": audio_analysis,
+                    "multimodal_summary": {}
+                }
+                
+                # Create comprehensive multimodal summary
+                analysis_results["multimodal_summary"] = analyzer._create_multimodal_summary(
+                    transcript_analysis, visual_analysis, audio_analysis
+                )
+                
+                # Save analysis results
+                analyzer._save_analysis_results(
+                    segment_info["paths"], analysis_results, segment_num
+                )
+                
+                segment_results.append(analysis_results)
+            
+            # Phase 4: Final completion
+            if progress_tracker:
+                progress_tracker.update_phase_progress(100.0, "Batch optimization completed")
+                progress_tracker.complete_phase("Optimized Multimodal Analysis")
+            
+            # Record performance metrics
+            total_execution_time = time.time() - analysis_start_time
+            total_frames_processed = performance_metrics['total_frames_processed']
+            estimated_api_calls = performance_metrics['total_batches_submitted']
+            
+            record_visual_analysis_metrics(
+                operation_type='batch',
+                frames_processed=total_frames_processed,
+                execution_time=total_execution_time,
+                api_calls_made=estimated_api_calls,
+                error_count=0  # Could be enhanced to track actual errors
+            )
+            
+            # Log performance summary
+            logger.info(
+                f"Optimized multimodal analysis completed:\n"
+                f"  - Segments processed: {len(segment_results)}\n"
+                f"  - Total frames analyzed: {performance_metrics['total_frames_processed']}\n"
+                f"  - Batch efficiency: {performance_metrics['batching_efficiency']*100:.1f}%\n"
+                f"  - Estimated cost savings: {performance_metrics['estimated_cost_savings']['estimated_savings_percentage']:.1f}%\n"
+                f"  - Processing rate: {performance_metrics['frames_per_second']:.2f} frames/second\n"
+                f"  - Total execution time: {total_execution_time:.2f}s"
+            )
+            
+            return segment_results
+            
+        except Exception as e:
+            logger.error(f"Error in optimized multimodal analysis: {e}")
+            if progress_tracker:
+                progress_tracker.complete_phase("Optimized Multimodal Analysis", success=False)
+            raise
+    
+    def _extract_transcript_for_segment_internal(
+        self, 
+        transcript_data: List[Dict[str, Any]], 
+        segment_info: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """
+        Internal method to extract transcript for a segment.
+        This is the same logic as in SegmentProcessor but accessible within this class.
+        """
+        try:
+            start_time = segment_info["start_time"]
+            end_time = segment_info["end_time"]
+            
+            segment_transcript = []
+            
+            for transcript_item in transcript_data:
+                # Get timing information (support multiple formats)
+                item_start = transcript_item.get("start", transcript_item.get("start_time", 0))
+                item_end = transcript_item.get("end", transcript_item.get("end_time", 0))
+                
+                # Check if transcript item overlaps with segment
+                if (item_start < end_time and item_end > start_time):
+                    # Adjust timing to be relative to segment start
+                    adjusted_item = transcript_item.copy()
+                    adjusted_item["segment_start"] = max(0, item_start - start_time)
+                    adjusted_item["segment_end"] = min(end_time - start_time, item_end - start_time)
+                    adjusted_item["original_start"] = item_start
+                    adjusted_item["original_end"] = item_end
+                    
+                    segment_transcript.append(adjusted_item)
+            
+            return segment_transcript
+            
+        except Exception as e:
+            logger.error(f"Error extracting transcript for segment: {e}")
+            return []
     
     def _analyze_transcript(self, transcript_segment: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -267,11 +522,11 @@ class MultimodalAnalyzer:
         end_time: float
     ) -> Dict[str, Any]:
         """
-        Analyze visual content by extracting and analyzing key frames.
+        Analyze visual content by extracting and analyzing key frames using optimized batch processing.
 
-        This method extracts a few representative frames from the segment,
-        analyzes each with Gemini for a technical description, and then
-        creates a summary of the visual content.
+        This method extracts representative frames from the segment and uses Gemini's
+        batch API to analyze all frames efficiently in a single request, reducing
+        network latency and API costs by 50%.
 
         Args:
             video_path: Path to the original video file.
@@ -293,12 +548,11 @@ class MultimodalAnalyzer:
             if not frame_paths:
                 return {"error": "No frames could be extracted"}
             
-            # Analyze each frame with Gemini
-            frame_analyses = []
+            # Prepare batch analysis requests
+            batch_requests = []
             for i, frame_path in enumerate(frame_paths):
-                try:
-                    # Create prompt for technical screen analysis
-                    prompt = """Analyze this screenshot from a technical session. Describe:
+                # Create prompt for technical screen analysis
+                prompt = """Analyze this screenshot from a technical session. Describe:
 1. What software/applications are visible
 2. What technical activity is being performed
 3. Any code, commands, or technical content visible
@@ -306,39 +560,88 @@ class MultimodalAnalyzer:
 5. Overall technical context and purpose
 
 Provide a concise technical analysis focusing on the educational/instructional content."""
-                    
-                    # Analyze with Gemini
-                    from PIL import Image
-                    image = Image.open(frame_path)
-                    analysis = analyze_with_gemini(prompt, image)
-                    
+                
+                batch_requests.append({
+                    'prompt': prompt,
+                    'image': frame_path,  # Path will be loaded by batch processor
+                    'frame_id': f'frame_{i + 1}',
+                    'metadata': {
+                        'frame_number': i + 1,
+                        'frame_path': frame_path,
+                        'timestamp': start_time + (i * (end_time - start_time) / (len(frame_paths) - 1)),
+                        'segment_start': start_time,
+                        'segment_end': end_time
+                    }
+                })
+            
+            # Progress callback for tracking
+            def visual_progress_callback(progress: float, message: str):
+                if self.progress_tracker:
+                    # Map visual analysis progress to a subset of the overall progress
+                    visual_weight = 0.4  # Visual analysis is 40% of segment analysis
+                    base_progress = 30.0  # Assuming we're 30% through segment analysis when visual starts
+                    adjusted_progress = base_progress + (progress * visual_weight)
+                    self.progress_tracker.update_phase_progress(adjusted_progress, f"Visual: {message}")
+            
+            logger.info(f"Starting batch analysis of {len(batch_requests)} frames for segment")
+            
+            # Perform batch analysis
+            batch_results = batch_analyze_images_with_gemini(
+                batch_requests, 
+                progress_callback=visual_progress_callback
+            )
+            
+            # Convert batch results to expected format
+            frame_analyses = []
+            for result in batch_results:
+                metadata = result.get('metadata', {})
+                
+                if 'error' in result:
                     frame_analyses.append({
-                        "frame_number": i + 1,
-                        "frame_path": frame_path,
-                        "timestamp": start_time + (i * (end_time - start_time) / (len(frame_paths) - 1)),
-                        "analysis": analysis
+                        'frame_number': metadata.get('frame_number', 0),
+                        'frame_path': metadata.get('frame_path', ''),
+                        'timestamp': metadata.get('timestamp', 0),
+                        'error': result['error']
                     })
-                    
-                except Exception as e:
-                    logger.error(f"Error analyzing frame {frame_path}: {e}")
+                else:
                     frame_analyses.append({
-                        "frame_number": i + 1,
-                        "frame_path": frame_path,
-                        "error": str(e)
+                        'frame_number': metadata.get('frame_number', 0),
+                        'frame_path': metadata.get('frame_path', ''),
+                        'timestamp': metadata.get('timestamp', 0),
+                        'analysis': result.get('analysis', ''),
+                        'processing_method': metadata.get('processing_method', 'batch'),
+                        'batch_job_id': metadata.get('batch_job_id', '')
                     })
             
             # Create visual summary
             visual_summary = self._create_visual_summary(frame_analyses)
             
-            return {
+            # Calculate performance metrics
+            successful_analyses = len([r for r in frame_analyses if 'analysis' in r])
+            batch_processing_used = any(r.get('processing_method') == 'batch' for r in frame_analyses)
+            
+            result = {
                 "frames_extracted": len(frame_paths),
                 "frame_analyses": frame_analyses,
                 "visual_summary": visual_summary,
-                "frames_dir": frames_dir
+                "frames_dir": frames_dir,
+                "performance_metrics": {
+                    "successful_analyses": successful_analyses,
+                    "total_frames": len(frame_paths),
+                    "batch_processing_used": batch_processing_used,
+                    "processing_efficiency": successful_analyses / len(frame_paths) if frame_paths else 0
+                }
             }
             
+            logger.info(
+                f"Visual analysis completed: {successful_analyses}/{len(frame_paths)} frames analyzed "
+                f"(batch processing: {batch_processing_used})"
+            )
+            
+            return result
+            
         except Exception as e:
-            logger.error(f"Error in visual analysis: {e}")
+            logger.error(f"Error in optimized visual analysis: {e}")
             return {"error": str(e)}
     
     def _analyze_audio_content(self, audio_path: str) -> Dict[str, Any]:

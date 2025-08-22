@@ -313,7 +313,12 @@ def process_video(
                 progress_tracker
             )
 
-            # NEW: Segment-level multimodal analysis
+            # NEW: Segment-level multimodal analysis with performance monitoring
+            from .analysis.performance_monitor import enable_performance_monitoring, generate_session_performance_report
+            
+            # Enable performance monitoring for this session
+            enable_performance_monitoring(project_path)
+            
             if progress_tracker:
                 progress_tracker.start_phase("Segment Analysis")
 
@@ -328,6 +333,17 @@ def process_video(
             segment_results = segment_processor.save_segment_results(
                 processed_segments, project_structure
             )
+            
+            # Generate performance report for this session
+            try:
+                performance_report = generate_session_performance_report(project_path)
+                logger.info("Performance optimization report generated")
+                
+                # Add performance metrics to results
+                segment_results["performance_optimization"] = performance_report
+                
+            except Exception as e:
+                logger.warning(f"Could not generate performance report: {e}")
 
             # Combine results with new structure
             results = {
