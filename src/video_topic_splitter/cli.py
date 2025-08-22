@@ -150,6 +150,12 @@ def main() -> None:
         help="Optional context for screenshot analysis.",
     )
     parser.add_argument(
+        "--analysis-mode",
+        choices=["legacy", "sfl"],
+        default="legacy",
+        help="Screenshot analysis mode: 'legacy' for traditional analysis, 'sfl' for SFL framework analysis (default: legacy).",
+    )
+    parser.add_argument(
         "--progress-json",
         action="store_true",
         help="Output progress information as JSON for programmatic consumption.",
@@ -226,14 +232,34 @@ def main() -> None:
 
     try:
         if args.analyze_screenshot:
-            from .analysis.multimodal_analysis import analyze_screenshot
-            results = analyze_screenshot(
-                args.input,
-                project_path,
-                software_list=args.software_list,
-                ocr_lang=args.ocr_lang,
-                context=args.screenshot_context,
-            )
+            # Process software list if provided
+            software_list = None
+            if args.software_list:
+                if not os.path.exists(args.software_list):
+                    print(f"Error: Software list file not found: {args.software_list}")
+                    sys.exit(1)
+                with open(args.software_list, "r") as f:
+                    software_list = [line.strip() for line in f if line.strip()]
+                print(f"Loaded {len(software_list)} software applications to detect.")
+            
+            if args.analysis_mode == "sfl":
+                from .analysis.multimodal_analysis import analyze_screenshot_sfl
+                results = analyze_screenshot_sfl(
+                    args.input,
+                    project_path,
+                    context=args.screenshot_context,
+                    software_list=software_list,
+                    ocr_lang=args.ocr_lang,
+                )
+            else:  # legacy mode
+                from .analysis.multimodal_analysis import analyze_screenshot
+                results = analyze_screenshot(
+                    args.input,
+                    project_path,
+                    software_list=software_list,
+                    ocr_lang=args.ocr_lang,
+                    context=args.screenshot_context,
+                )
         else:
             software_list = None
             if args.software_list:

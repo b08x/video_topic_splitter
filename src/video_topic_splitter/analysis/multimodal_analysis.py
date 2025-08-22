@@ -18,6 +18,7 @@ from ..processing.video.video_segmentation import extract_segment_frames
 from ..processing.ocr.ocr_detection import detect_software_names
 from ..progress_tracker import ProgressTracker
 from .enhanced_transcript_analysis import EnhancedTranscriptAnalyzer
+from ..utils.prompts import load_and_process_template, get_default_template_path, load_prompt_template
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ class MultimodalAnalyzer:
                 "end_time": segment_info["end_time"],
                 "duration": segment_info["duration"]
             },
-            "transcript_analysis": self._analyze_transcript(transcript_segment),
+            "transcript_analysis": self._analyze_transcript(transcript_segment, segment_info),
             "visual_analysis": self._analyze_visual_content(
                 video_path, 
                 paths["frames_dir"], 
@@ -235,7 +236,7 @@ Provide a concise technical analysis focusing on the educational/instructional c
                 )
                 
                 # Perform transcript and audio analysis
-                transcript_analysis = analyzer._analyze_transcript(transcript_segment)
+                transcript_analysis = analyzer._analyze_transcript(transcript_segment, segment_info)
                 audio_analysis = analyzer._analyze_audio_content(segment_info["paths"]["audio_file"])
                 
                 # Get visual analysis results from batch processing
@@ -355,20 +356,88 @@ Provide a concise technical analysis focusing on the educational/instructional c
             logger.error(f"Error extracting transcript for segment: {e}")
             return []
     
-    def _analyze_transcript(self, transcript_segment: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _summarize_transcript_segment(self, transcript_segment: List[Dict[str, Any]], context: str) -> str:
+        """
+        Generate concise, context-aware summaries of transcript segments using the SFL framework.
+        
+        This method loads the SFL subtitle summary prompt template, substitutes the transcript
+        text and context placeholders, and calls the Gemini LLM service to generate a summary.
+        
+        Args:
+            transcript_segment: List of transcript items for the segment
+            context: Contextual information to inform the summary generation
+            
+        Returns:
+            A concise summary of the transcript segment, or an error message if generation fails
+        """
+        try:
+            if not transcript_segment:
+                return "No transcript content available for summary generation"
+            
+            # Extract the transcript text content
+            transcript_text = " ".join([
+                item.get("content", item.get("text", ""))
+                for item in transcript_segment
+            ])
+            
+            if not transcript_text.strip():
+                return "Empty transcript content - no summary generated"
+            
+            # Load and process the SFL prompt template
+            try:
+                template_path = get_default_template_path("sfl_subtitle_summary_prompt")
+                
+                # Define template variables for substitution
+                template_variables = {
+                    "SUBTITLE_TEXT": transcript_text,
+                    "CONTEXT": context
+                }
+                
+                # Load and process the template with variable substitution
+                prompt = load_and_process_template(template_path, template_variables)
+                logger.debug("Successfully loaded and processed SFL subtitle summary prompt")
+                
+            except FileNotFoundError:
+                logger.error("SFL subtitle summary prompt template not found")
+                return "Error: SFL prompt template not found"
+            except Exception as e:
+                logger.error(f"Error loading SFL prompt template: {e}")
+                return f"Error loading prompt template: {str(e)}"
+            
+            # Call Gemini LLM service to generate the summary
+            try:
+                logger.info("Generating transcript summary using Gemini LLM")
+                summary = analyze_with_gemini(prompt, image=None)  # Text-only analysis
+                
+                if not summary or summary.strip() == "":
+                    return "LLM generated empty summary"
+                
+                logger.debug(f"Successfully generated transcript summary of {len(summary)} characters")
+                return summary.strip()
+                
+            except Exception as e:
+                logger.error(f"Error calling Gemini for transcript summary: {e}")
+                return f"Error generating summary: {str(e)}"
+                
+        except Exception as e:
+            logger.error(f"Unexpected error in _summarize_transcript_segment: {e}")
+            return f"Unexpected error: {str(e)}"
+
+    def _analyze_transcript(self, transcript_segment: List[Dict[str, Any]], segment_info: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analyze transcript content using enhanced spaCy-powered analysis.
 
         This method uses the EnhancedTranscriptAnalyzer to perform a deep
         linguistic analysis of the transcript. If the enhanced analysis fails,
-        it falls back to a basic analysis.
+        it falls back to a basic analysis. Additionally generates an SFL summary.
 
         Args:
             transcript_segment: A list of transcript items for the segment.
+            segment_info: Segment metadata including topic, timing, and other context.
 
         Returns:
             A dictionary containing the analysis of the transcript, including
-            key phrases, named entities, and other linguistic features.
+            key phrases, named entities, other linguistic features, and SFL summary.
         """
         try:
             if not transcript_segment:
@@ -380,7 +449,7 @@ Provide a concise technical analysis focusing on the educational/instructional c
             # If enhanced analysis failed, fall back to basic analysis
             if "error" in enhanced_analysis:
                 logger.warning(f"Enhanced analysis failed: {enhanced_analysis['error']}, falling back to basic analysis")
-                return self._basic_transcript_analysis(transcript_segment)
+                return self._basic_transcript_analysis(transcript_segment, segment_info)
             
             # Extract legacy-compatible data for backward compatibility
             basic_metrics = enhanced_analysis.get("basic_metrics", {})
@@ -436,26 +505,53 @@ Provide a concise technical analysis focusing on the educational/instructional c
             
             result["key_phrases"] = phrase_candidates[:10] if phrase_candidates else ["No significant phrases found"]
             
+            # Generate SFL-based summary for the transcript segment
+            try:
+                # Build context information for the SFL summary
+                context_parts = [
+                    f"Video Topic: {segment_info.get('topic', 'Unknown')}",
+                    f"Segment: {segment_info.get('segment_number', 'N/A')} of total video",
+                    f"Duration: {segment_info.get('duration', 0):.1f} seconds",
+                    f"Timeframe: {segment_info.get('start_time', 0):.1f}s - {segment_info.get('end_time', 0):.1f}s"
+                ]
+                
+                # Add key phrases for additional context
+                if phrase_candidates:
+                    context_parts.append(f"Key Topics: {', '.join(phrase_candidates[:5])}")
+                
+                context_info = "; ".join(context_parts)
+                
+                # Generate the SFL summary
+                sfl_summary = self._summarize_transcript_segment(transcript_segment, context_info)
+                result["sfl_summary"] = sfl_summary
+                
+                logger.debug(f"Successfully generated SFL summary for segment {segment_info.get('segment_number', 'N/A')}")
+                
+            except Exception as e:
+                logger.warning(f"Failed to generate SFL summary: {e}")
+                result["sfl_summary"] = f"Summary generation failed: {str(e)}"
+            
             return result
             
         except Exception as e:
             logger.error(f"Error in enhanced transcript analysis: {e}")
             # Fall back to basic analysis
-            return self._basic_transcript_analysis(transcript_segment)
+            return self._basic_transcript_analysis(transcript_segment, segment_info)
     
-    def _basic_transcript_analysis(self, transcript_segment: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _basic_transcript_analysis(self, transcript_segment: List[Dict[str, Any]], segment_info: Dict[str, Any]) -> Dict[str, Any]:
         """
         Perform a basic, fallback analysis of the transcript segment.
 
         This method is used when the enhanced spaCy-based analysis is not
         available or fails. It calculates basic metrics and extracts key
-        phrases using simple frequency analysis.
+        phrases using simple frequency analysis. Also includes SFL summary.
 
         Args:
             transcript_segment: A list of transcript items for the segment.
+            segment_info: Segment metadata including topic, timing, and other context.
 
         Returns:
-            A dictionary with basic transcript analysis results.
+            A dictionary with basic transcript analysis results and SFL summary.
         """
         try:
             # Extract text content
@@ -498,15 +594,42 @@ Provide a concise technical analysis focusing on the educational/instructional c
             
             # Get most frequent meaningful words as key phrases
             key_phrases = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:10]
+            phrase_list = [phrase[0] for phrase in key_phrases]
+            
+            # Generate SFL-based summary for the transcript segment (basic context)
+            try:
+                # Build basic context information for the SFL summary
+                context_parts = [
+                    f"Video Topic: {segment_info.get('topic', 'Unknown')}",
+                    f"Segment: {segment_info.get('segment_number', 'N/A')} of total video",
+                    f"Duration: {segment_info.get('duration', 0):.1f} seconds",
+                    f"Timeframe: {segment_info.get('start_time', 0):.1f}s - {segment_info.get('end_time', 0):.1f}s"
+                ]
+                
+                # Add key phrases for additional context
+                if phrase_list:
+                    context_parts.append(f"Key Topics: {', '.join(phrase_list[:5])}")
+                
+                context_info = "; ".join(context_parts)
+                
+                # Generate the SFL summary
+                sfl_summary = self._summarize_transcript_segment(transcript_segment, context_info)
+                
+                logger.debug(f"Successfully generated SFL summary for segment {segment_info.get('segment_number', 'N/A')} (basic analysis)")
+                
+            except Exception as e:
+                logger.warning(f"Failed to generate SFL summary in basic analysis: {e}")
+                sfl_summary = f"Summary generation failed: {str(e)}"
             
             return {
                 "text_content": text_content,
                 "word_count": word_count,
                 "duration": total_duration,
                 "speech_rate": word_count / total_duration if total_duration > 0 else 0,
-                "key_phrases": [phrase[0] for phrase in key_phrases],
+                "key_phrases": phrase_list,
                 "segments_count": len(transcript_segment),
                 "transcript_segments": transcript_segment,
+                "sfl_summary": sfl_summary,
                 "analysis_method": "basic_fallback"
             }
             
@@ -737,10 +860,11 @@ Provide a concise technical analysis focusing on the educational/instructional c
         audio_analysis: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Create a comprehensive summary combining all analysis modalities.
+        Create a comprehensive summary using the SFL multimodal technical analysis framework.
 
-        This method synthesizes insights from transcript, visual, and audio
-        analyses to provide a holistic view of the segment's content.
+        This method replaces the heuristic-based approach with a sophisticated LLM-driven
+        SFL framework that synthesizes insights from transcript, visual, and audio analyses
+        through structured prompting and Gemini API integration.
 
         Args:
             transcript_analysis: The results from transcript analysis.
@@ -748,12 +872,558 @@ Provide a concise technical analysis focusing on the educational/instructional c
             audio_analysis: The results from audio analysis.
 
         Returns:
-            A dictionary containing a multimodal summary with key insights,
-            technical elements, and a confidence score.
+            A dictionary containing a multimodal summary generated by the SFL framework
+            with structured insights and comprehensive technical analysis.
         """
+        try:
+            # Gather visual summary and transcript summary for SFL prompt
+            visual_summary = self._extract_visual_analysis_summary(visual_analysis)
+            transcript_summary = self._extract_transcript_analysis_summary(transcript_analysis)
+            
+            # Load the SFL multimodal technical analysis prompt
+            try:
+                template_path = get_default_template_path("sfl_multimodal_technical_analysis_prompt")
+                
+                # Load the SFL framework prompt template
+                sfl_framework_prompt = load_prompt_template(template_path)
+                
+                # Append the actual analysis data to the SFL framework prompt
+                full_prompt = f"""{sfl_framework_prompt}
+
+---
+
+## CURRENT SESSION DATA FOR ANALYSIS
+
+### Visual Analysis Summary
+{visual_summary}
+
+### Transcript Analysis Summary
+{transcript_summary}
+
+### Analysis Request
+Please analyze the above visual and transcript data using the SFL multimodal technical analysis framework. Provide comprehensive insights that synthesize both modalities according to the framework specifications above.
+
+Focus on:
+1. **Multimodal Technical State**: What comprehensive picture emerges from both visual interface evidence and spoken technical content?
+2. **Cross-Modal Correlation**: How do the visual actions align with or contradict the spoken content?
+3. **Enhanced Issue Detection**: What problems can be identified through the combination of both evidence sources?
+4. **Comprehensive Workflow Analysis**: What does the synthesis reveal about technical progress and competence?
+5. **Multimodal Recommendations**: What actions should be taken based on the comprehensive evidence?
+
+Generate your analysis following the structured output format specified in the framework above."""
+                
+                logger.debug("Successfully loaded and constructed SFL multimodal analysis prompt")
+                sfl_prompt = full_prompt
+                
+            except FileNotFoundError:
+                logger.error("SFL multimodal technical analysis prompt template not found")
+                return self._fallback_multimodal_summary(transcript_analysis, visual_analysis, audio_analysis)
+            except Exception as e:
+                logger.error(f"Error loading SFL multimodal prompt template: {e}")
+                return self._fallback_multimodal_summary(transcript_analysis, visual_analysis, audio_analysis)
+            
+            # Get a representative keyframe image for multimodal analysis
+            keyframe_image = self._get_representative_keyframe(visual_analysis)
+            
+            # Call Gemini API with the SFL prompt and keyframe image
+            try:
+                logger.info("Generating multimodal summary using SFL framework and Gemini API")
+                sfl_analysis_result = analyze_with_gemini(sfl_prompt, keyframe_image)
+                
+                if not sfl_analysis_result or sfl_analysis_result.strip() == "":
+                    logger.warning("SFL analysis returned empty result, falling back to heuristic approach")
+                    return self._fallback_multimodal_summary(transcript_analysis, visual_analysis, audio_analysis)
+                
+                # Parse and structure the SFL analysis result
+                structured_summary = self._parse_sfl_analysis_output(
+                    sfl_analysis_result, transcript_analysis, visual_analysis, audio_analysis
+                )
+                
+                logger.info("Successfully generated SFL-based multimodal summary")
+                return structured_summary
+                
+            except Exception as e:
+                logger.error(f"Error calling Gemini API for SFL multimodal analysis: {e}")
+                return self._fallback_multimodal_summary(transcript_analysis, visual_analysis, audio_analysis)
+                
+        except Exception as e:
+            logger.error(f"Unexpected error in SFL multimodal summary generation: {e}")
+            return self._fallback_multimodal_summary(transcript_analysis, visual_analysis, audio_analysis)
+    
+    def _extract_visual_analysis_summary(self, visual_analysis: Dict[str, Any]) -> str:
+        """
+        Extract and format visual analysis summary for SFL prompt injection.
+        
+        Args:
+            visual_analysis: Visual analysis results dictionary
+            
+        Returns:
+            Formatted visual analysis summary for SFL template
+        """
+        if not visual_analysis or visual_analysis.get("error"):
+            return "No visual analysis available - unable to extract frames or perform visual content analysis."
+        
+        visual_summary_parts = []
+        
+        # Add frames information
+        frames_count = visual_analysis.get("frames_extracted", 0)
+        if frames_count > 0:
+            visual_summary_parts.append(f"Extracted and analyzed {frames_count} representative frames from the segment.")
+        
+        # Add visual summary
+        visual_summary = visual_analysis.get("visual_summary", "")
+        if visual_summary:
+            visual_summary_parts.append(f"Visual Content Summary: {visual_summary}")
+        
+        # Add performance metrics if available
+        performance_metrics = visual_analysis.get("performance_metrics", {})
+        if performance_metrics:
+            successful_analyses = performance_metrics.get("successful_analyses", 0)
+            total_frames = performance_metrics.get("total_frames", 0)
+            if total_frames > 0:
+                success_rate = (successful_analyses / total_frames) * 100
+                visual_summary_parts.append(f"Analysis Success Rate: {success_rate:.1f}% ({successful_analyses}/{total_frames} frames)")
+        
+        # Add individual frame analyses if available
+        frame_analyses = visual_analysis.get("frame_analyses", [])
+        if frame_analyses:
+            technical_content_found = []
+            for frame in frame_analyses:
+                if "analysis" in frame and not frame.get("error"):
+                    analysis_text = frame["analysis"]
+                    # Extract key technical points (first 150 chars as preview)
+                    preview = analysis_text[:150] + "..." if len(analysis_text) > 150 else analysis_text
+                    timestamp = frame.get("timestamp", "unknown")
+                    technical_content_found.append(f"Frame at {timestamp:.1f}s: {preview}")
+            
+            if technical_content_found:
+                visual_summary_parts.append("Technical Content Observed:")
+                visual_summary_parts.extend([f"- {content}" for content in technical_content_found])
+        
+        return "\n".join(visual_summary_parts) if visual_summary_parts else "No visual analysis data available."
+    
+    def _extract_transcript_analysis_summary(self, transcript_analysis: Dict[str, Any]) -> str:
+        """
+        Extract and format transcript analysis summary for SFL prompt injection.
+        
+        Args:
+            transcript_analysis: Transcript analysis results dictionary
+            
+        Returns:
+            Formatted transcript analysis summary for SFL template
+        """
+        if not transcript_analysis or transcript_analysis.get("error"):
+            return "No transcript analysis available - unable to process audio content."
+        
+        transcript_summary_parts = []
+        
+        # Add basic metrics
+        word_count = transcript_analysis.get("word_count", 0)
+        duration = transcript_analysis.get("duration", 0)
+        speech_rate = transcript_analysis.get("speech_rate", 0)
+        
+        if word_count > 0 and duration > 0:
+            transcript_summary_parts.append(
+                f"Transcript Analysis: {word_count} words spoken over {duration:.1f} seconds "
+                f"(rate: {speech_rate:.1f} words/second)"
+            )
+        
+        # Add key phrases
+        key_phrases = transcript_analysis.get("key_phrases", [])
+        if key_phrases:
+            phrases_preview = ", ".join(key_phrases[:8])  # Show top 8 key phrases
+            transcript_summary_parts.append(f"Key Topics Discussed: {phrases_preview}")
+        
+        # Add SFL summary if available
+        sfl_summary = transcript_analysis.get("sfl_summary", "")
+        if sfl_summary and "Error" not in sfl_summary and "Failed" not in sfl_summary:
+            transcript_summary_parts.append(f"Content Summary: {sfl_summary}")
+        
+        # Add enhanced analysis insights if available
+        enhanced_analysis = transcript_analysis.get("enhanced_analysis", {})
+        if enhanced_analysis:
+            # Add technical elements
+            technical_elements = enhanced_analysis.get("technical_elements", [])
+            if technical_elements:
+                tech_preview = ", ".join(technical_elements[:6])  # Show top 6 technical elements
+                transcript_summary_parts.append(f"Technical Elements: {tech_preview}")
+            
+            # Add named entities summary
+            named_entities = enhanced_analysis.get("named_entities", {})
+            entity_summary = named_entities.get("summary", {})
+            if entity_summary.get("total_entities", 0) > 0:
+                total_entities = entity_summary.get("total_entities")
+                entity_types = entity_summary.get("entity_types", 0)
+                transcript_summary_parts.append(f"Named Entities: {total_entities} entities across {entity_types} categories")
+            
+            # Add actions summary
+            actions = enhanced_analysis.get("actions_and_relationships", {})
+            if actions.get("total_actions", 0) > 0:
+                action_count = actions.get("total_actions")
+                transcript_summary_parts.append(f"Technical Actions: {action_count} distinct actions identified")
+        
+        # Add raw text content (truncated)
+        text_content = transcript_analysis.get("text_content", "")
+        if text_content:
+            content_preview = text_content[:200] + "..." if len(text_content) > 200 else text_content
+            transcript_summary_parts.append(f"Spoken Content Preview: '{content_preview}'")
+        
+        return "\n".join(transcript_summary_parts) if transcript_summary_parts else "No transcript analysis data available."
+    
+    def _get_representative_keyframe(self, visual_analysis: Dict[str, Any]) -> Optional[Image.Image]:
+        """
+        Get a representative keyframe image for multimodal analysis.
+        
+        Args:
+            visual_analysis: Visual analysis results containing frame information
+            
+        Returns:
+            PIL Image object of the representative keyframe, or None if not available
+        """
+        try:
+            frame_analyses = visual_analysis.get("frame_analyses", [])
+            if not frame_analyses:
+                logger.warning("No frame analyses available for keyframe selection")
+                return None
+            
+            # Try to find the middle frame as most representative
+            middle_index = len(frame_analyses) // 2
+            representative_frame = frame_analyses[middle_index]
+            
+            frame_path = representative_frame.get("frame_path", "")
+            if not frame_path or not os.path.exists(frame_path):
+                # Fallback to first available frame
+                for frame in frame_analyses:
+                    frame_path = frame.get("frame_path", "")
+                    if frame_path and os.path.exists(frame_path):
+                        break
+                else:
+                    logger.warning("No valid frame paths found in visual analysis")
+                    return None
+            
+            # Load and return the image
+            image = Image.open(frame_path)
+            logger.debug(f"Successfully loaded keyframe image from {frame_path}")
+            return image
+            
+        except Exception as e:
+            logger.error(f"Error loading representative keyframe: {e}")
+            return None
+    
+    def _parse_sfl_analysis_output(
+        self,
+        sfl_analysis_result: str,
+        transcript_analysis: Dict[str, Any],
+        visual_analysis: Dict[str, Any],
+        audio_analysis: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Parse and structure the SFL analysis output to match the expected multimodal_summary format.
+        
+        Args:
+            sfl_analysis_result: Raw text output from the SFL-based Gemini analysis
+            transcript_analysis: Original transcript analysis for fallback data
+            visual_analysis: Original visual analysis for fallback data
+            audio_analysis: Original audio analysis for fallback data
+            
+        Returns:
+            Structured multimodal summary dictionary compatible with downstream processing
+        """
+        try:
+            # Base structure for multimodal summary
+            structured_summary = {
+                "analysis_timestamp": time.time(),
+                "analysis_method": "sfl_framework",
+                "modalities_analyzed": [],
+                "key_insights": [],
+                "technical_elements": [],
+                "confidence_score": 0.0,
+                "sfl_analysis": sfl_analysis_result,
+                "structured_analysis": {}
+            }
+            
+            # Determine which modalities were successfully analyzed
+            if transcript_analysis and not transcript_analysis.get("error"):
+                structured_summary["modalities_analyzed"].append("transcript")
+            if visual_analysis and not visual_analysis.get("error"):
+                structured_summary["modalities_analyzed"].append("visual")
+            if audio_analysis and not audio_analysis.get("error"):
+                structured_summary["modalities_analyzed"].append("audio")
+            
+            # Parse the SFL analysis for structured insights
+            sfl_insights = self._extract_insights_from_sfl_output(sfl_analysis_result)
+            structured_summary["key_insights"] = sfl_insights.get("insights", [])
+            structured_summary["technical_elements"] = sfl_insights.get("technical_elements", [])
+            structured_summary["structured_analysis"] = sfl_insights.get("structured_sections", {})
+            
+            # Calculate confidence score based on modalities and SFL output quality
+            modality_count = len(structured_summary["modalities_analyzed"])
+            sfl_quality_score = self._assess_sfl_output_quality(sfl_analysis_result)
+            
+            # Confidence based on modalities (0.0-0.7) + SFL quality (0.0-0.3)
+            base_confidence = min(0.7, modality_count * 0.35)  # Max 0.7 for 2+ modalities
+            quality_bonus = sfl_quality_score * 0.3  # Max 0.3 for high quality
+            structured_summary["confidence_score"] = min(1.0, base_confidence + quality_bonus)
+            
+            # Add fallback data if SFL parsing was limited
+            if not structured_summary["key_insights"]:
+                structured_summary["key_insights"] = self._extract_fallback_insights(
+                    transcript_analysis, visual_analysis, audio_analysis
+                )
+            
+            if not structured_summary["technical_elements"]:
+                structured_summary["technical_elements"] = self._extract_fallback_technical_elements(
+                    transcript_analysis, visual_analysis, audio_analysis
+                )
+            
+            logger.info(f"Successfully parsed SFL analysis with {len(structured_summary['key_insights'])} insights")
+            return structured_summary
+            
+        except Exception as e:
+            logger.error(f"Error parsing SFL analysis output: {e}")
+            # Fallback to basic structure with SFL content
+            return {
+                "analysis_timestamp": time.time(),
+                "analysis_method": "sfl_framework_with_errors",
+                "modalities_analyzed": ["transcript", "visual"] if visual_analysis else ["transcript"],
+                "key_insights": [f"SFL Analysis Generated (parsing errors encountered): {sfl_analysis_result[:200]}..."],
+                "technical_elements": [],
+                "confidence_score": 0.4,
+                "sfl_analysis": sfl_analysis_result,
+                "parsing_error": str(e)
+            }
+    
+    def _extract_insights_from_sfl_output(self, sfl_output: str) -> Dict[str, Any]:
+        """
+        Extract structured insights from SFL analysis output using pattern matching.
+        
+        Args:
+            sfl_output: Raw SFL analysis text
+            
+        Returns:
+            Dictionary containing extracted insights and technical elements
+        """
+        insights = []
+        technical_elements = []
+        structured_sections = {}
+        
+        # Split into sections based on common SFL output patterns
+        sections = self._split_sfl_sections(sfl_output)
+        structured_sections = sections
+        
+        # Extract insights from different sections
+        for section_name, section_content in sections.items():
+            if section_name.lower() in ["technical state", "multimodal technical state", "visual evidence"]:
+                # Extract technical elements and state information
+                tech_items = self._extract_technical_items(section_content)
+                technical_elements.extend(tech_items)
+                if section_content.strip():
+                    insights.append(f"Technical State: {section_content.strip()[:150]}...")
+            
+            elif section_name.lower() in ["issue detection", "enhanced issue detection", "issues"]:
+                # Extract issue-related insights
+                if section_content.strip():
+                    insights.append(f"Issues Identified: {section_content.strip()[:150]}...")
+            
+            elif section_name.lower() in ["workflow analysis", "comprehensive workflow analysis"]:
+                # Extract workflow insights
+                if section_content.strip():
+                    insights.append(f"Workflow Analysis: {section_content.strip()[:150]}...")
+            
+            elif section_name.lower() in ["recommendations", "multimodal recommendations"]:
+                # Extract recommendations
+                if section_content.strip():
+                    insights.append(f"Recommendations: {section_content.strip()[:150]}...")
+        
+        # If no structured sections found, extract general insights
+        if not insights:
+            # Look for bullet points, numbered lists, or paragraph structure
+            general_insights = self._extract_general_insights(sfl_output)
+            insights.extend(general_insights)
+        
+        # Extract technical elements from the full text if none found in sections
+        if not technical_elements:
+            technical_elements = self._extract_technical_items(sfl_output)
+        
+        return {
+            "insights": insights[:10],  # Limit to top 10 insights
+            "technical_elements": list(set(technical_elements))[:15],  # Unique, limit to 15
+            "structured_sections": structured_sections
+        }
+    
+    def _split_sfl_sections(self, text: str) -> Dict[str, str]:
+        """Split SFL output into sections based on headers and structure."""
+        sections = {}
+        
+        # Look for markdown-style headers
+        lines = text.split('\n')
+        current_section = "general"
+        current_content = []
+        
+        for line in lines:
+            # Check for section headers (## or **bold** patterns)
+            if line.strip().startswith('##') or (line.strip().startswith('**') and line.strip().endswith('**')):
+                # Save previous section
+                if current_content:
+                    sections[current_section] = '\n'.join(current_content).strip()
+                
+                # Start new section
+                current_section = line.strip().replace('##', '').replace('**', '').strip()
+                current_content = []
+            else:
+                current_content.append(line)
+        
+        # Save final section
+        if current_content:
+            sections[current_section] = '\n'.join(current_content).strip()
+        
+        return sections
+    
+    def _extract_technical_items(self, text: str) -> List[str]:
+        """Extract technical items from text using pattern matching."""
+        import re
+        
+        technical_elements = []
+        
+        # Common technical patterns
+        patterns = [
+            r'\b(?:VS Code|Visual Studio|PyCharm|IntelliJ|Eclipse|Atom|Sublime)\b',  # IDEs
+            r'\b(?:Python|JavaScript|Java|C\+\+|Ruby|PHP|Go|Rust|TypeScript)\b',   # Languages
+            r'\b(?:Git|Docker|Kubernetes|Jenkins|Travis|CircleCI)\b',             # DevOps tools
+            r'\b(?:React|Vue|Angular|Django|Flask|Spring|Express)\b',             # Frameworks
+            r'\b(?:MySQL|PostgreSQL|MongoDB|Redis|SQLite)\b',                    # Databases
+            r'\b(?:AWS|Azure|GCP|Heroku|Netlify|Vercel)\b',                     # Cloud platforms
+            r'\b(?:terminal|command line|CLI|shell|bash|zsh)\b',                 # Terminal references
+            r'\b(?:API|REST|GraphQL|JSON|XML|YAML)\b',                          # API/Data formats
+            r'\b(?:error|bug|debug|test|build|deploy|install|configure)\b',     # Actions
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            technical_elements.extend([match.lower() for match in matches])
+        
+        return technical_elements
+    
+    def _extract_general_insights(self, text: str) -> List[str]:
+        """Extract general insights from unstructured SFL output."""
+        import re
+        
+        insights = []
+        
+        # Split by sentences and look for meaningful statements
+        sentences = re.split(r'[.!?]+', text)
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            # Look for insights (sentences with technical content and reasonable length)
+            if (len(sentence) > 30 and len(sentence) < 200 and 
+                any(keyword in sentence.lower() for keyword in 
+                    ['technical', 'analysis', 'observed', 'visible', 'detected', 'identified', 
+                     'shows', 'indicates', 'suggests', 'workflow', 'process', 'system'])):
+                insights.append(sentence)
+        
+        return insights[:8]  # Limit to 8 general insights
+    
+    def _assess_sfl_output_quality(self, sfl_output: str) -> float:
+        """
+        Assess the quality of SFL output for confidence scoring.
+        
+        Returns a score between 0.0 and 1.0 based on output characteristics.
+        """
+        if not sfl_output or len(sfl_output.strip()) < 50:
+            return 0.0
+        
+        quality_score = 0.0
+        
+        # Length-based quality (0.0-0.3)
+        if len(sfl_output) > 500:
+            quality_score += 0.3
+        elif len(sfl_output) > 200:
+            quality_score += 0.2
+        else:
+            quality_score += 0.1
+        
+        # Structure-based quality (0.0-0.4)
+        if '##' in sfl_output or '**' in sfl_output:  # Has headers
+            quality_score += 0.2
+        if any(marker in sfl_output for marker in ['•', '-', '1.', '2.', '3.']):  # Has lists
+            quality_score += 0.2
+        
+        # Content-based quality (0.0-0.3)
+        technical_keywords = ['software', 'interface', 'technical', 'analysis', 'workflow', 'system']
+        keyword_count = sum(1 for keyword in technical_keywords if keyword.lower() in sfl_output.lower())
+        quality_score += min(0.3, keyword_count * 0.05)
+        
+        return min(1.0, quality_score)
+    
+    def _extract_fallback_insights(
+        self, 
+        transcript_analysis: Dict[str, Any], 
+        visual_analysis: Dict[str, Any], 
+        audio_analysis: Dict[str, Any]
+    ) -> List[str]:
+        """Extract basic insights as fallback when SFL parsing fails."""
+        insights = []
+        
+        # From transcript
+        if transcript_analysis and not transcript_analysis.get("error"):
+            word_count = transcript_analysis.get("word_count", 0)
+            key_phrases = transcript_analysis.get("key_phrases", [])
+            if word_count > 0:
+                insights.append(f"Transcript: {word_count} words, key topics: {', '.join(key_phrases[:3])}")
+        
+        # From visual
+        if visual_analysis and not visual_analysis.get("error"):
+            visual_summary = visual_analysis.get("visual_summary", "")
+            if visual_summary:
+                insights.append(f"Visual: {visual_summary}")
+        
+        return insights
+    
+    def _extract_fallback_technical_elements(
+        self, 
+        transcript_analysis: Dict[str, Any], 
+        visual_analysis: Dict[str, Any], 
+        audio_analysis: Dict[str, Any]
+    ) -> List[str]:
+        """Extract basic technical elements as fallback when SFL parsing fails."""
+        technical_elements = []
+        
+        # From transcript
+        if transcript_analysis and not transcript_analysis.get("error"):
+            key_phrases = transcript_analysis.get("key_phrases", [])
+            enhanced_analysis = transcript_analysis.get("enhanced_analysis", {})
+            
+            if enhanced_analysis:
+                spacy_technical = enhanced_analysis.get("technical_elements", [])
+                technical_elements.extend(spacy_technical)
+            else:
+                # Basic extraction
+                tech_phrases = [phrase for phrase in key_phrases if any(
+                    tech in phrase.lower() for tech in ["code", "command", "install", "run", "error", "config"]
+                )]
+                technical_elements.extend(tech_phrases)
+        
+        return technical_elements
+    
+    def _fallback_multimodal_summary(
+        self, 
+        transcript_analysis: Dict[str, Any],
+        visual_analysis: Dict[str, Any],
+        audio_analysis: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Fallback to heuristic-based multimodal summary when SFL approach fails.
+        
+        This preserves the original heuristic logic as a backup when SFL processing
+        encounters errors or the prompt template is unavailable.
+        """
+        logger.info("Using fallback heuristic-based multimodal summary")
+        
         try:
             summary = {
                 "analysis_timestamp": time.time(),
+                "analysis_method": "heuristic_fallback",
                 "modalities_analyzed": [],
                 "key_insights": [],
                 "technical_elements": [],
@@ -848,8 +1518,8 @@ Provide a concise technical analysis focusing on the educational/instructional c
             return summary
             
         except Exception as e:
-            logger.error(f"Error creating multimodal summary: {e}")
-            return {"error": str(e)}
+            logger.error(f"Error in fallback multimodal summary: {e}")
+            return {"error": str(e), "analysis_method": "fallback_failed"}
     
     def _save_analysis_results(
         self, 
@@ -1031,3 +1701,190 @@ def analyze_screenshot(
         error_msg = f"Failed to analyze screenshot {image_path}: {e}"
         logger.error(error_msg)
         return {"error": error_msg}
+
+
+def analyze_screenshot_sfl(
+    image_path: str,
+    project_path: str,
+    context: Optional[str] = None,
+    software_list: Optional[List[str]] = None,
+    ocr_lang: str = "eng"
+) -> Dict[str, Any]:
+    """
+    Analyze a single screenshot using the SFL (Systemic Functional Linguistics) framework.
+    
+    This function provides enhanced technical screenshot analysis using a structured
+    prompt template that follows SFL principles for comprehensive technical session
+    analysis, including interface identification, state assessment, workflow analysis,
+    and actionable recommendations.
+    
+    Args:
+        image_path: Path to the screenshot image file.
+        project_path: Path to the project directory for saving any artifacts.
+        context: Optional context to provide additional information about the session.
+        software_list: Optional list of software names to detect via OCR.
+        ocr_lang: Language for OCR detection (default: "eng").
+        
+    Returns:
+        A dictionary containing the comprehensive SFL-based analysis results.
+    """
+    try:
+        logger.info(f"Starting SFL analysis of screenshot: {image_path}")
+        
+        # Load the image
+        frame = cv2.imread(image_path)
+        if frame is None:
+            return {"error": f"Could not read image: {image_path}"}
+        
+        image = Image.open(image_path)
+        
+        # Perform OCR analysis if software list is provided
+        ocr_matches = []
+        if software_list:
+            try:
+                ocr_matches = detect_software_names(frame, software_list, ocr_lang)
+                logger.debug(f"OCR detected {len(ocr_matches)} software matches")
+            except Exception as e:
+                logger.warning(f"OCR analysis failed: {e}")
+        
+        # Prepare context for SFL prompt
+        sfl_context_parts = []
+        
+        # Add provided context
+        if context:
+            sfl_context_parts.append(f"Session Context: {context}")
+        
+        # Add OCR findings
+        if ocr_matches:
+            software_names = [match['software'] for match in ocr_matches]
+            sfl_context_parts.append(f"Detected Software (via OCR): {', '.join(software_names)}")
+        else:
+            sfl_context_parts.append("No specific software detected via OCR analysis.")
+        
+        # Add image metadata
+        image_info = {
+            "file_path": image_path,
+            "file_size": os.path.getsize(image_path),
+            "image_dimensions": f"{image.width}x{image.height}",
+            "image_mode": image.mode
+        }
+        sfl_context_parts.append(f"Image Information: {image_info['image_dimensions']} {image_info['image_mode']} image")
+        
+        # Combine all context
+        combined_context = "\n".join(sfl_context_parts)
+        
+        # Load and process the SFL prompt template
+        try:
+            template_path = get_default_template_path("sfl_technical_screenshot_analysis_prompt")
+            
+            # Define template variables
+            template_variables = {
+                "CONTEXT": combined_context,
+                "IMAGE_PATH": image_path,
+                "PROJECT_PATH": project_path,
+                "TIMESTAMP": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            
+            # Load and process the template
+            sfl_prompt = load_and_process_template(template_path, template_variables)
+            logger.debug("Successfully loaded and processed SFL prompt template")
+            
+        except FileNotFoundError:
+            logger.error("SFL prompt template not found, falling back to built-in prompt")
+            # Fallback prompt if template file is missing
+            sfl_prompt = f"""
+# SFL Technical Screenshot Analysis
+
+Analyze this screenshot from a technical session following the SFL framework principles.
+
+## Context Information:
+{combined_context}
+
+## Analysis Requirements:
+
+### Interface Identification (Field)
+- Identify all visible technical tools, applications, and interfaces
+- Assess current states of technical processes and systems
+- Evaluate apparent workflow progress and development phase
+
+### Technical Assessment (Tenor)  
+- **Interface Interpreter**: Precise identification of visible tools and their states
+- **Workflow Analyst**: Strategic analysis of development progress and session flow
+- **Troubleshooting Guide**: Identify issues and recommend resolution approaches
+- **Session Facilitator**: Provide guidance for maintaining productive workflow
+
+### Structured Analysis (Mode)
+Provide analysis in the following structure:
+
+1. **Technical State Summary**:
+   - Visible Tools: List applications and interfaces with current status
+   - Active Processes: Observable technical processes with progress indicators
+   - System Health: Assessment of visible performance and resource usage
+
+2. **Issue Assessment**:
+   - Critical Issues: Immediate blockers requiring attention
+   - Warnings: Potential problems that may impact progress
+   - Optimization Opportunities: Observed inefficiencies or improvements
+
+3. **Workflow Analysis**:
+   - Current Phase: Apparent development stage (coding, testing, debugging, deployment)
+   - Progress Indicators: Evidence of forward movement or completion status
+   - Next Logical Steps: Recommended actions based on observed state
+
+4. **Contextual Recommendations**:
+   - Immediate Actions: Specific steps to address visible issues
+   - Tool Suggestions: Recommended tools or interface adjustments
+   - Workflow Optimization: Suggestions for improving session efficiency
+
+Focus on evidence-based analysis using visible interface elements and provide actionable insights for technical session support.
+            """
+        
+        # Analyze with Gemini using the SFL-enhanced prompt
+        logger.info("Submitting image for SFL-based Gemini analysis")
+        gemini_analysis = analyze_with_gemini(sfl_prompt, image)
+        
+        # Prepare comprehensive results
+        results = {
+            "analysis_type": "sfl_framework",
+            "image_path": image_path,
+            "image_info": image_info,
+            "context_provided": context,
+            "ocr_matches": ocr_matches,
+            "sfl_analysis": gemini_analysis,
+            "analysis_timestamp": time.time(),
+            "analysis_datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "template_used": "sfl_technical_screenshot_analysis_prompt",
+            "processing_details": {
+                "ocr_enabled": bool(software_list),
+                "ocr_language": ocr_lang,
+                "software_detected_count": len(ocr_matches),
+                "context_sections": len(sfl_context_parts)
+            }
+        }
+        
+        # Save results to project directory with SFL-specific naming
+        try:
+            results_filename = "sfl_screenshot_analysis.json"
+            results_path = os.path.join(project_path, results_filename)
+            
+            with open(results_path, 'w', encoding='utf-8') as f:
+                json.dump(results, f, indent=2, ensure_ascii=False, default=str)
+            
+            logger.info(f"SFL screenshot analysis results saved to: {results_path}")
+            results["results_file"] = results_path
+            
+        except Exception as e:
+            logger.warning(f"Could not save SFL screenshot analysis results: {e}")
+        
+        logger.info("SFL screenshot analysis completed successfully")
+        return results
+        
+    except (UnidentifiedImageError, Exception) as e:
+        error_msg = f"Failed to perform SFL analysis of screenshot {image_path}: {e}"
+        logger.error(error_msg)
+        return {
+            "analysis_type": "sfl_framework", 
+            "error": error_msg,
+            "image_path": image_path,
+            "analysis_timestamp": time.time()
+        }
