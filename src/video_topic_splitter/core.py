@@ -13,7 +13,6 @@ import os
 from dotenv import load_dotenv
 
 from .analysis.topic_modeling import process_transcript
-from .analysis.visual_analysis import split_and_analyze_video
 from .analysis.segment_analysis import SegmentProcessor
 from .constants import CHECKPOINTS
 from .progress_tracker import ProgressTracker, create_console_progress_callback
@@ -330,22 +329,10 @@ def process_video(
                 processed_segments, project_structure
             )
 
-            # Keep legacy visual analysis for backward compatibility
-            analyzed_scenes = split_and_analyze_video(
-                unsilenced_video_path,
-                project_path,
-                software_list,
-                ocr_lang,
-                frames_per_scene,
-                register,
-                progress_tracker,
-            )
-
             # Combine results with new structure
             results = {
                 "topics": topic_results.get("topics", []),
                 "segments": topic_results.get("segments", []),
-                "analyzed_scenes": analyzed_scenes,
                 "segmented_files": segmented_files,
                 "processed_segments": processed_segments,
                 "segment_results": segment_results,

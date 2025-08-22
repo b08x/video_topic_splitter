@@ -239,6 +239,30 @@ The tool creates a project directory with the following structure:
 
 ## Configuration ⚙️
 
+### Data Privacy Notice 🔒
+
+**Important: By using this tool with cloud-based services, you are sending data to external AI services.**
+
+This tool uses third-party cloud services for processing your video/audio content:
+
+- **OpenAI Whisper API**: Handles audio transcription. Your audio file is sent to OpenAI's servers for speech-to-text conversion.
+- **Google Gemini API**: Performs visual frame analysis. Individual video frames are transmitted to Google for content interpretation.
+- **OpenRouter API (Microsoft Phi-4)**: Conducts topic modeling and text analysis. Your transcript text is sent to OpenRouter's servers.
+
+**Data Transmitted**:
+- Full audio file (for transcription)
+- Video frames (for visual analysis)
+- Transcript text (for topic modeling)
+
+**Recommendations**:
+- Only process videos containing non-sensitive, non-confidential content
+- If processing sensitive data, consider:
+  1. Using local/on-premise alternatives for each service
+  2. Manually reviewing and redacting sensitive information before processing
+  3. Consulting your organization's data privacy guidelines
+
+For maximum privacy, you can configure local alternatives for each service by modifying the respective API base URLs or using self-hosted models.
+
 - **API Keys:** You *must* set the following environment variables. A `.env` file is recommended.
   - `OPENAI_API_KEY`: Your OpenAI API key. This is optional if you are using a local Whisper server that does not require authentication.
   - `OPENAI_API_BASE`: (Optional) The base URL for the Whisper API. Defaults to `https://api.openai.com/v1`. Use this to point to a local inference server (e.g., `http://localhost:8080/v1`).

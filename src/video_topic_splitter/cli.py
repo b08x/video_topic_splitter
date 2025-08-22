@@ -226,7 +226,7 @@ def main() -> None:
 
     try:
         if args.analyze_screenshot:
-            from .analysis.visual_analysis import analyze_screenshot
+            from .analysis.multimodal_analysis import analyze_screenshot
             results = analyze_screenshot(
                 args.input,
                 project_path,

@@ -4,21 +4,21 @@
 OpenAI API integration for transcription services.
 
 This module provides a function to interact with the OpenAI Whisper API for
-audio transcription. It uses a cURL command-line interface for robustness
-and to support custom API endpoints, which is useful for local or alternative
-Whisper server implementations.
+audio transcription. It uses the official OpenAI Python library for secure
+and reliable API communication, supporting custom API endpoints and optional
+API keys for use with local or alternative Whisper server implementations.
 """
 
-import json
 import os
-import subprocess
+
+import openai
 
 
 def transcribe_with_whisper(audio_path: str) -> dict:
     """
-    Transcribes an audio file using the OpenAI Whisper API via a cURL command.
+    Transcribes an audio file using the OpenAI Whisper API via the official OpenAI Python library.
 
-    This function constructs and executes a cURL command to send the audio file
+    This function uses the official OpenAI client library to send the audio file
     to the Whisper API for transcription. It supports custom API endpoints through
     the `OPENAI_API_BASE` environment variable and handles optional API keys,
     making it suitable for use with local Whisper servers.
@@ -30,62 +30,63 @@ def transcribe_with_whisper(audio_path: str) -> dict:
         dict: The JSON response from the Whisper API as a Python dictionary.
 
     Raises:
-        RuntimeError: If the cURL command fails or returns a non-zero exit code.
-        json.JSONDecodeError: If the output from cURL is not valid JSON.
+        openai.APIError: If the API request fails due to an API-specific error.
+        openai.RateLimitError: If the API request is rate limited.
+        openai.AuthenticationError: If the API key is invalid or missing when required.
+        FileNotFoundError: If the specified audio file does not exist.
+        Exception: For any other unexpected errors during transcription.
     """
     print("Transcribing audio with Whisper API...")
 
+    # Get configuration from environment variables
     api_key = os.getenv("OPENAI_API_KEY")
     api_base = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
-    endpoint = f"{api_base}/audio/transcriptions"
 
-    headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    # Construct the cURL command
-    curl_command = [
-        "curl",
-        "-s",  # Silent mode
-        "-X",
-        "POST",
-        endpoint,
-        "-F",
-        f"file=@{audio_path}",
-        "-F",
-        "model=whisper-1",
-        "-F",
-        "response_format=verbose_json",
-    ]
-
-    # Add headers
-    for key, value in headers.items():
-        curl_command.extend(["-H", f"{key}: {value}"])
+    # Initialize the OpenAI client with custom configuration
+    client = openai.OpenAI(
+        api_key=api_key,
+        base_url=api_base
+    )
 
     try:
-        # Execute the command
-        process = subprocess.run(
-            curl_command,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        response_json = json.loads(process.stdout)
-        print("Transcription complete.")
-        return response_json
+        # Verify the audio file exists
+        if not os.path.exists(audio_path):
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-    except subprocess.CalledProcessError as e:
-        error_message = (
-            f"cURL command failed with exit code {e.returncode}.\n"
-            f"Stderr: {e.stderr}\n"
-            f"Stdout: {e.stdout}"
-        )
+        # Open and transcribe the audio file
+        with open(audio_path, "rb") as audio_file:
+            response = client.audio.transcriptions.create(
+                file=audio_file,
+                model="whisper-1",
+                response_format="verbose_json"
+            )
+
+        # Convert the response to a dictionary for consistency with the original function
+        response_dict = response.model_dump()
+        print("Transcription complete.")
+        return response_dict
+
+    except openai.AuthenticationError as e:
+        error_message = f"OpenAI API authentication failed. Please check your API key: {e}"
         print(error_message)
-        raise RuntimeError(error_message)
-    except json.JSONDecodeError as e:
-        error_message = f"Failed to decode JSON from cURL output: {e}"
+        raise openai.AuthenticationError(error_message) from e
+
+    except openai.RateLimitError as e:
+        error_message = f"OpenAI API rate limit exceeded. Please try again later: {e}"
+        print(error_message)
+        raise openai.RateLimitError(error_message) from e
+
+    except openai.APIError as e:
+        error_message = f"OpenAI API error occurred: {e}"
+        print(error_message)
+        raise openai.APIError(error_message) from e
+
+    except FileNotFoundError as e:
+        error_message = f"Audio file not found: {e}"
         print(error_message)
         raise
+
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        error_message = f"An unexpected error occurred during transcription: {e}"
+        print(error_message)
         raise

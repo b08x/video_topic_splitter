@@ -10,8 +10,12 @@ import logging
 from typing import Dict, List, Optional, Any
 import time
 
+import cv2
+from PIL import Image, UnidentifiedImageError
+
 from ..api.gemini import analyze_with_gemini
 from ..processing.video.video_segmentation import extract_segment_frames
+from ..processing.ocr.ocr_detection import detect_software_names
 from ..progress_tracker import ProgressTracker
 from .enhanced_transcript_analysis import EnhancedTranscriptAnalyzer
 
@@ -636,3 +640,91 @@ def create_speaker_attributed_transcript(
         attributed_transcript.append(attributed_item)
     
     return attributed_transcript
+
+
+def analyze_screenshot(
+    image_path,
+    project_path,
+    software_list=None,
+    ocr_lang="eng",
+    context=None,
+):
+    """
+    Analyze a single screenshot for software applications using OCR and Gemini.
+
+    This function takes a path to an image, performs OCR to detect software
+    names, and then uses Gemini to provide a more detailed analysis of the
+    visual content.
+
+    Args:
+        image_path: Path to the screenshot image file.
+        project_path: Path to the project directory for saving any artifacts.
+        software_list: Optional list of software names to detect via OCR.
+        ocr_lang: Language for OCR detection.
+        context: Optional context to provide to the Gemini analysis.
+
+    Returns:
+        A dictionary containing the OCR matches and the Gemini analysis.
+    """
+    try:
+        logger.info(f"Analyzing screenshot: {image_path}")
+        
+        # Load the image
+        frame = cv2.imread(image_path)
+        if frame is None:
+            return {"error": f"Could not read image: {image_path}"}
+        
+        image = Image.open(image_path)
+        
+        # Perform OCR analysis if software list is provided
+        ocr_matches = []
+        if software_list:
+            try:
+                ocr_matches = detect_software_names(frame, software_list, ocr_lang)
+            except Exception as e:
+                logger.warning(f"OCR analysis failed: {e}")
+        
+        # Create context for Gemini analysis
+        software_context = (
+            f"Detected software (via OCR): {', '.join(m['software'] for m in ocr_matches)}"
+            if ocr_matches
+            else "No specific software detected via OCR."
+        )
+        
+        # Build prompt for Gemini analysis
+        base_prompt = (
+            "Analyze this screenshot for software applications and technical content. "
+            "Describe the visual elements, user interface components, and any actions taking place."
+        )
+        
+        if context:
+            prompt = f"{base_prompt}\n\nAdditional context: {context}\n\n{software_context}"
+        else:
+            prompt = f"{base_prompt}\n\n{software_context}"
+        
+        # Analyze with Gemini
+        gemini_analysis = analyze_with_gemini(prompt, image)
+        
+        # Prepare results
+        results = {
+            "image_path": image_path,
+            "ocr_matches": ocr_matches,
+            "gemini_analysis": gemini_analysis,
+            "analysis_timestamp": time.time()
+        }
+        
+        # Save results to project directory
+        try:
+            results_path = os.path.join(project_path, "screenshot_analysis.json")
+            with open(results_path, 'w', encoding='utf-8') as f:
+                json.dump(results, f, indent=2, ensure_ascii=False, default=str)
+            logger.info(f"Screenshot analysis results saved to: {results_path}")
+        except Exception as e:
+            logger.warning(f"Could not save screenshot analysis results: {e}")
+        
+        return results
+        
+    except (UnidentifiedImageError, Exception) as e:
+        error_msg = f"Failed to analyze screenshot {image_path}: {e}"
+        logger.error(error_msg)
+        return {"error": error_msg}
