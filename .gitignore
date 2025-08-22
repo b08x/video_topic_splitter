@@ -12,3 +12,5 @@ pyproject.toml
 notebooks/ffmpeg-numpy.ipynb
 /data/
 /site/
+/docs/
+backlog.json
